@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Upload, FolderPlus, Folder, File as FileIcon, Image, Video, Music,
   FileText, Archive, Code, MoreVertical, Download, Trash2, Share2,
-  ChevronRight, Home, RefreshCw, Grid, List, Search, X, Eye, Copy
+  ChevronRight, Home, RefreshCw, Grid, List, Search, X, Eye, Copy,
+  CheckCircle, AlertCircle, Loader2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -31,20 +32,41 @@ interface Breadcrumb {
   name: string;
 }
 
+interface UploadFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  progress: number;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  error?: string;
+  uploadedBytes: number;
+  startTime: number;
+  speed: number;
+}
+
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [currentFolder, setCurrentFolder] = useState<number | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: 'หน้าแรก' }]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  
+  // Upload Modal State
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [totalProgress, setTotalProgress] = useState(0);
+  const [uploadComplete, setUploadComplete] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortControllers = useRef<Map<string, AbortController>>(new Map());
 
-  const fetchFiles = async (folderId: number | null = null) => {
+  const fetchFiles = useCallback(async (folderId: number | null = null) => {
     setLoading(true);
     try {
       const url = folderId
@@ -61,72 +83,325 @@ export default function FilesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchFiles(currentFolder);
-  }, [currentFolder]);
+  }, [currentFolder, fetchFiles]);
 
-  const handleFileUpload = async (fileList: FileList | null) => {
+  // Generate unique ID for upload files
+  const generateId = () => Math.random().toString(36).substring(2, 15);
+
+  // Format bytes to readable string
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Format speed (bytes/s to readable)
+  const formatSpeed = (bytesPerSecond: number) => {
+    if (bytesPerSecond === 0) return '0 B/s';
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+    return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  // Format time remaining
+  const formatTimeRemaining = (seconds: number) => {
+    if (seconds <= 0 || !isFinite(seconds)) return '--:--';
+    if (seconds < 60) return `${Math.round(seconds)}วิ`;
+    if (seconds < 3600) {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.round(seconds % 60);
+      return `${mins}น ${secs}วิ`;
+    }
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return `${hours}ชม ${mins}น`;
+  };
+
+  // Add files to upload queue
+  const addFilesToQueue = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
-    setUploading(true);
-    const formData = new FormData();
+    const newFiles: UploadFile[] = [];
     
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
-      formData.append('files', file);
-      // Get relative path for directory uploads
-      const relativePath = (file as any).webkitRelativePath || '';
-      formData.append('relativePaths', relativePath);
-    }
-
-    if (currentFolder) {
-      formData.append('folderId', currentFolder.toString());
-    }
-
-    try {
-      const res = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        Swal.fire({
-          icon: 'success',
-          title: 'อัพโหลดสำเร็จ!',
-          text: data.message,
-          background: '#1e293b',
-          color: '#fff',
-          confirmButtonColor: '#6366f1',
-        });
-        fetchFiles(currentFolder);
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'อัพโหลดไม่สำเร็จ',
-          text: data.error || 'เกิดข้อผิดพลาด',
-          background: '#1e293b',
-          color: '#fff',
-          confirmButtonColor: '#6366f1',
+      if (file.size > 0 && file.name && file.name !== 'undefined') {
+        newFiles.push({
+          id: generateId(),
+          file,
+          name: file.name,
+          size: file.size,
+          progress: 0,
+          status: 'pending',
+          uploadedBytes: 0,
+          startTime: 0,
+          speed: 0
         });
       }
-    } catch (error) {
+    }
+
+    if (newFiles.length > 0) {
+      setUploadFiles(prev => [...prev, ...newFiles]);
+      setShowUploadModal(true);
+      setUploadComplete(false);
+    }
+  };
+
+  // Upload single file with progress tracking
+  const uploadSingleFile = async (uploadFile: UploadFile): Promise<boolean> => {
+    const abortController = new AbortController();
+    uploadAbortControllers.current.set(uploadFile.id, abortController);
+
+    try {
+      const startTime = Date.now();
+      
+      // Update status to uploading
+      setUploadFiles(prev => prev.map(f => 
+        f.id === uploadFile.id ? { ...f, status: 'uploading' as const, startTime } : f
+      ));
+
+      const formData = new FormData();
+      formData.append('files', uploadFile.file);
+      
+      // Get relative path for folder uploads
+      const relativePath = (uploadFile.file as any).webkitRelativePath || '';
+      if (relativePath) {
+        formData.append('relativePaths', relativePath);
+      }
+
+      // Add current folder ID - THIS IS THE KEY FIX
+      if (currentFolder !== null) {
+        formData.append('folderId', currentFolder.toString());
+      }
+
+      // Use XMLHttpRequest for progress tracking
+      return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        let lastLoaded = 0;
+        let lastTime = startTime;
+        
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const now = Date.now();
+            const progress = Math.round((event.loaded / event.total) * 100);
+            
+            // Calculate speed (bytes per second)
+            const timeDiff = (now - lastTime) / 1000; // in seconds
+            const bytesDiff = event.loaded - lastLoaded;
+            const currentSpeed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+            
+            // Smooth speed calculation (weighted average)
+            setUploadFiles(prev => prev.map(f => {
+              if (f.id === uploadFile.id) {
+                const smoothedSpeed = f.speed > 0 
+                  ? (f.speed * 0.7 + currentSpeed * 0.3) 
+                  : currentSpeed;
+                return { 
+                  ...f, 
+                  progress, 
+                  uploadedBytes: event.loaded,
+                  speed: smoothedSpeed
+                };
+              }
+              return f;
+            }));
+            
+            lastLoaded = event.loaded;
+            lastTime = now;
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadFiles(prev => prev.map(f => 
+              f.id === uploadFile.id ? { ...f, status: 'completed' as const, progress: 100, uploadedBytes: f.size, speed: 0 } : f
+            ));
+            resolve(true);
+          } else {
+            let errorMsg = 'Upload failed';
+            try {
+              const response = JSON.parse(xhr.responseText);
+              errorMsg = response.error || errorMsg;
+            } catch (e) {}
+            
+            setUploadFiles(prev => prev.map(f => 
+              f.id === uploadFile.id ? { ...f, status: 'error' as const, error: errorMsg } : f
+            ));
+            resolve(false);
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Network error' } : f
+          ));
+          resolve(false);
+        });
+
+        xhr.addEventListener('abort', () => {
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Cancelled' } : f
+          ));
+          resolve(false);
+        });
+
+        xhr.open('POST', '/api/files/upload');
+        xhr.send(formData);
+
+        // Handle abort
+        abortController.signal.addEventListener('abort', () => {
+          xhr.abort();
+        });
+      });
+    } catch (error: any) {
+      setUploadFiles(prev => prev.map(f => 
+        f.id === uploadFile.id ? { ...f, status: 'error' as const, error: error.message } : f
+      ));
+      return false;
+    } finally {
+      uploadAbortControllers.current.delete(uploadFile.id);
+    }
+  };
+
+  // Start uploading all files
+  const startUpload = async () => {
+    if (isUploading) return;
+    
+    setIsUploading(true);
+    setUploadComplete(false);
+
+    const pendingFiles = uploadFiles.filter(f => f.status === 'pending' || f.status === 'error');
+    
+    // Reset error files to pending
+    setUploadFiles(prev => prev.map(f => 
+      f.status === 'error' ? { ...f, status: 'pending' as const, error: undefined, progress: 0, uploadedBytes: 0, speed: 0 } : f
+    ));
+
+    let completed = 0;
+    let successful = 0;
+
+    for (const uploadFile of pendingFiles) {
+      const success = await uploadSingleFile(uploadFile);
+      completed++;
+      if (success) successful++;
+      
+      // Update total progress
+      setTotalProgress(Math.round((completed / pendingFiles.length) * 100));
+    }
+
+    setIsUploading(false);
+    setUploadComplete(true);
+    
+    // Refresh file list
+    fetchFiles(currentFolder);
+
+    // Show completion message
+    if (successful === pendingFiles.length) {
       Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: 'ไม่สามารถอัพโหลดไฟล์ได้',
+        icon: 'success',
+        title: 'อัพโหลดสำเร็จ!',
+        text: `อัพโหลด ${successful} ไฟล์สำเร็จ`,
         background: '#1e293b',
         color: '#fff',
         confirmButtonColor: '#6366f1',
+        timer: 2000
       });
-    } finally {
-      setUploading(false);
-      // Reset input values to allow re-uploading same file
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (folderInputRef.current) folderInputRef.current.value = '';
+    } else if (successful > 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'อัพโหลดบางส่วน',
+        text: `สำเร็จ ${successful}/${pendingFiles.length} ไฟล์`,
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#6366f1'
+      });
+    } else {
+      Swal.fire({
+        icon: 'error',
+        title: 'อัพโหลดไม่สำเร็จ',
+        text: 'ไม่สามารถอัพโหลดไฟล์ได้',
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#6366f1'
+      });
     }
+  };
+
+  // Cancel upload
+  const cancelUpload = (fileId: string) => {
+    const controller = uploadAbortControllers.current.get(fileId);
+    if (controller) {
+      controller.abort();
+    }
+    setUploadFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  // Cancel all uploads
+  const cancelAllUploads = () => {
+    uploadAbortControllers.current.forEach(controller => controller.abort());
+    uploadAbortControllers.current.clear();
+    setUploadFiles([]);
+    setShowUploadModal(false);
+    setIsUploading(false);
+    setTotalProgress(0);
+  };
+
+  // Remove completed/error files from queue
+  const removeFromQueue = (fileId: string) => {
+    setUploadFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  // Clear completed files
+  const clearCompleted = () => {
+    setUploadFiles(prev => prev.filter(f => f.status !== 'completed'));
+  };
+
+  // Close modal after completion
+  const closeUploadModal = () => {
+    if (isUploading) {
+      Swal.fire({
+        title: 'ยกเลิกการอัพโหลด?',
+        text: 'ไฟล์ที่กำลังอัพโหลดจะถูกยกเลิก',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'ยกเลิก',
+        cancelButtonText: 'ดำเนินการต่อ',
+        background: '#1e293b',
+        color: '#f1f5f9'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          cancelAllUploads();
+        }
+      });
+    } else {
+      setUploadFiles([]);
+      setShowUploadModal(false);
+      setTotalProgress(0);
+      setUploadComplete(false);
+    }
+  };
+
+  // Get total upload stats for header display
+  const getTotalUploadStats = () => {
+    const uploading = uploadFiles.filter(f => f.status === 'uploading');
+    const totalBytes = uploading.reduce((sum, f) => sum + f.size, 0);
+    const uploadedBytes = uploading.reduce((sum, f) => sum + f.uploadedBytes, 0);
+    const avgSpeed = uploading.length > 0 
+      ? uploading.reduce((sum, f) => sum + f.speed, 0) / uploading.length 
+      : 0;
+    const remainingBytes = totalBytes - uploadedBytes;
+    const timeRemaining = avgSpeed > 0 ? remainingBytes / avgSpeed : 0;
+    
+    return { totalBytes, uploadedBytes, avgSpeed, timeRemaining };
   };
 
   const handleCreateFolder = async () => {
@@ -142,7 +417,7 @@ export default function FilesPage() {
       confirmButtonColor: '#6366f1',
       inputValidator: (value) => {
         if (!value) return 'กรุณากรอกชื่อโฟลเดอร์';
-        if (!/^[a-zA-Z0-9_\-\s\.]+$/.test(value)) return 'ชื่อโฟลเดอร์ไม่ถูกต้อง';
+        if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(value)) return 'ชื่อโฟลเดอร์ไม่ถูกต้อง';
         return null;
       },
     });
@@ -267,12 +542,12 @@ export default function FilesPage() {
 
       if (data.success) {
         if (!isPublic && data.data.public_url) {
-          const publicUrl = `${window.location.origin}/api/share/${data.data.public_url}`;
+          const publicUrl = `${window.location.origin}/api/files/share/${data.data.public_url}`;
           await Swal.fire({
             title: 'แชร์สำเร็จ!',
             html: `
               <p class="text-gray-400 mb-4">ลิงก์สาธารณะ:</p>
-              <input type="text" value="${publicUrl}" class="input text-sm" readonly />
+              <input type="text" value="${publicUrl}" class="w-full px-3 py-2 bg-gray-700 rounded text-sm" readonly />
             `,
             showConfirmButton: true,
             confirmButtonText: 'คัดลอกลิงก์',
@@ -325,14 +600,6 @@ export default function FilesPage() {
     return <FileIcon className="w-6 h-6 text-gray-400" />;
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('th-TH', {
       year: 'numeric',
@@ -360,18 +627,25 @@ export default function FilesPage() {
         const item = items[i].webkitGetAsEntry?.();
         if (item) {
           if (item.isFile) {
-            items[i].getAsFile() && fileList.push(items[i].getAsFile()!);
+            const file = items[i].getAsFile();
+            if (file) fileList.push(file);
           }
         }
       }
       if (fileList.length > 0) {
         const dataTransfer = new DataTransfer();
         fileList.forEach(f => dataTransfer.items.add(f));
-        handleFileUpload(dataTransfer.files);
+        addFilesToQueue(dataTransfer.files);
       }
     } else if (e.dataTransfer.files.length > 0) {
-      handleFileUpload(e.dataTransfer.files);
+      addFilesToQueue(e.dataTransfer.files);
     }
+  };
+
+  // Get current path display
+  const getCurrentPathDisplay = () => {
+    if (breadcrumbs.length <= 1) return 'หน้าแรก (Root)';
+    return breadcrumbs.map(b => b.name).join(' / ');
   };
 
   return (
@@ -382,19 +656,17 @@ export default function FilesPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-white">ไฟล์ของฉัน</h1>
           <p className="text-gray-400 mt-1">จัดการไฟล์และโฟลเดอร์ทั้งหมดของคุณ</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => fileInputRef.current?.click()}
             className="btn-primary flex items-center gap-2"
-            disabled={uploading}
           >
             <Upload className="w-5 h-5" />
-            {uploading ? 'กำลังอัพโหลด...' : 'อัพโหลดไฟล์'}
+            อัพโหลดไฟล์
           </button>
           <button
             onClick={() => folderInputRef.current?.click()}
             className="btn-secondary flex items-center gap-2"
-            disabled={uploading}
           >
             <FolderPlus className="w-5 h-5" />
             อัพโหลดโฟลเดอร์
@@ -409,13 +681,26 @@ export default function FilesPage() {
         </div>
       </div>
 
+      {/* Current Path Info */}
+      <div className="glass rounded-lg p-3 flex items-center gap-2">
+        <Folder className="w-5 h-5 text-blue-400" />
+        <span className="text-sm text-gray-400">ตำแหน่งปัจจุบัน:</span>
+        <span className="text-sm text-white font-medium">{getCurrentPathDisplay()}</span>
+        {currentFolder && (
+          <span className="text-xs text-gray-500 ml-2">(ID: {currentFolder})</span>
+        )}
+      </div>
+
       {/* Hidden Inputs */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
         className="hidden"
-        onChange={(e) => handleFileUpload(e.target.files)}
+        onChange={(e) => {
+          addFilesToQueue(e.target.files);
+          e.target.value = '';
+        }}
       />
       <input
         ref={folderInputRef}
@@ -424,7 +709,10 @@ export default function FilesPage() {
         webkitdirectory=""
         multiple
         className="hidden"
-        onChange={(e) => handleFileUpload(e.target.files)}
+        onChange={(e) => {
+          addFilesToQueue(e.target.files);
+          e.target.value = '';
+        }}
       />
 
       {/* Toolbar */}
@@ -507,7 +795,9 @@ export default function FilesPage() {
       >
         <Upload className="w-12 h-12 text-gray-500 mx-auto mb-4" />
         <p className="text-gray-300 mb-2">ลากไฟล์หรือโฟลเดอร์มาวางที่นี่</p>
-        <p className="text-sm text-gray-500">หรือคลิกปุ่มด้านบนเพื่ออัพโหลด</p>
+        <p className="text-sm text-gray-500">
+          ไฟล์จะถูกอัพโหลดไปยัง: <span className="text-blue-400">{getCurrentPathDisplay()}</span>
+        </p>
       </div>
 
       {/* Content */}
@@ -683,6 +973,234 @@ export default function FilesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-700/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Upload className="w-6 h-6 text-blue-400" />
+                    อัพโหลดไฟล์
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    ไปยัง: <span className="text-blue-400">{getCurrentPathDisplay()}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={closeUploadModal}
+                  className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              {/* Total Progress with Speed */}
+              {isUploading && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-gray-400">กำลังอัพโหลด</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-green-400 font-bold">
+                        {formatSpeed(getTotalUploadStats().avgSpeed)}
+                      </span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-gray-400">
+                        เหลือ {formatTimeRemaining(getTotalUploadStats().timeRemaining)}
+                      </span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-blue-400 font-bold">{totalProgress}%</span>
+                    </div>
+                  </div>
+                  <div className="h-3 rounded-full bg-gray-700 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300"
+                      style={{ width: `${totalProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* File List */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {uploadFiles.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <Upload className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>ไม่มีไฟล์ในคิว</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {uploadFiles.map((uploadFile) => {
+                    const remainingBytes = uploadFile.size - uploadFile.uploadedBytes;
+                    const timeRemaining = uploadFile.speed > 0 ? remainingBytes / uploadFile.speed : 0;
+                    
+                    return (
+                      <div 
+                        key={uploadFile.id}
+                        className={`p-4 rounded-lg border transition-all ${
+                          uploadFile.status === 'completed' 
+                            ? 'bg-green-500/10 border-green-500/30'
+                            : uploadFile.status === 'error'
+                            ? 'bg-red-500/10 border-red-500/30'
+                            : uploadFile.status === 'uploading'
+                            ? 'bg-blue-500/10 border-blue-500/30'
+                            : 'bg-gray-800/50 border-gray-700/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {/* Status Icon */}
+                          <div className="flex-shrink-0">
+                            {uploadFile.status === 'completed' ? (
+                              <CheckCircle className="w-6 h-6 text-green-400" />
+                            ) : uploadFile.status === 'error' ? (
+                              <AlertCircle className="w-6 h-6 text-red-400" />
+                            ) : uploadFile.status === 'uploading' ? (
+                              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                            ) : (
+                              <FileIcon className="w-6 h-6 text-gray-400" />
+                            )}
+                          </div>
+
+                          {/* File Info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white truncate">{uploadFile.name}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="text-xs text-gray-500">{formatBytes(uploadFile.size)}</span>
+                              
+                              {/* Show speed and progress when uploading */}
+                              {uploadFile.status === 'uploading' && (
+                                <>
+                                  <span className="text-xs text-gray-600">•</span>
+                                  <span className="text-xs text-green-400 font-bold">
+                                    {formatSpeed(uploadFile.speed)}
+                                  </span>
+                                  <span className="text-xs text-gray-600">•</span>
+                                  <span className="text-xs text-gray-400">
+                                    {formatBytes(uploadFile.uploadedBytes)} / {formatBytes(uploadFile.size)}
+                                  </span>
+                                  <span className="text-xs text-gray-600">•</span>
+                                  <span className="text-xs text-blue-400">
+                                    เหลือ {formatTimeRemaining(timeRemaining)}
+                                  </span>
+                                </>
+                              )}
+                              
+                              {uploadFile.status === 'error' && uploadFile.error && (
+                                <>
+                                  <span className="text-xs text-gray-600">•</span>
+                                  <span className="text-xs text-red-400">{uploadFile.error}</span>
+                                </>
+                              )}
+                              
+                              {uploadFile.status === 'completed' && (
+                                <>
+                                  <span className="text-xs text-gray-600">•</span>
+                                  <span className="text-xs text-green-400">สำเร็จ</span>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Progress Bar */}
+                            {(uploadFile.status === 'uploading' || uploadFile.status === 'completed') && (
+                              <div className="mt-2 h-1.5 rounded-full bg-gray-700 overflow-hidden">
+                                <div 
+                                  className={`h-full transition-all duration-300 ${
+                                    uploadFile.status === 'completed' 
+                                      ? 'bg-green-500' 
+                                      : 'bg-blue-500'
+                                  }`}
+                                  style={{ width: `${uploadFile.progress}%` }}
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Progress Percentage */}
+                          {uploadFile.status === 'uploading' && (
+                            <span className="text-sm font-bold text-blue-400 min-w-[45px] text-right">
+                              {uploadFile.progress}%
+                            </span>
+                          )}
+
+                          {/* Actions */}
+                          <div className="flex-shrink-0">
+                            {uploadFile.status === 'uploading' ? (
+                              <button
+                                onClick={() => cancelUpload(uploadFile.id)}
+                                className="p-1.5 hover:bg-red-500/20 rounded text-red-400"
+                                title="ยกเลิก"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            ) : uploadFile.status !== 'uploading' && (
+                              <button
+                                onClick={() => removeFromQueue(uploadFile.id)}
+                                className="p-1.5 hover:bg-gray-700 rounded text-gray-400"
+                                title="ลบออกจากคิว"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-gray-700/50">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-400">
+                  {uploadFiles.length} ไฟล์ • 
+                  {uploadFiles.filter(f => f.status === 'completed').length} สำเร็จ •
+                  {uploadFiles.filter(f => f.status === 'error').length} ล้มเหลว
+                </div>
+                <div className="flex items-center gap-3">
+                  {uploadFiles.some(f => f.status === 'completed') && (
+                    <button
+                      onClick={clearCompleted}
+                      className="text-sm text-gray-400 hover:text-white transition-colors"
+                    >
+                      ล้างที่สำเร็จ
+                    </button>
+                  )}
+                  <button
+                    onClick={closeUploadModal}
+                    className="btn-secondary"
+                  >
+                    ปิด
+                  </button>
+                  {uploadFiles.some(f => f.status === 'pending' || f.status === 'error') && !isUploading && (
+                    <button
+                      onClick={startUpload}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      <Upload className="w-4 h-4" />
+                      เริ่มอัพโหลด
+                    </button>
+                  )}
+                  {isUploading && (
+                    <button
+                      onClick={cancelAllUploads}
+                      className="btn-danger flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      ยกเลิกทั้งหมด
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

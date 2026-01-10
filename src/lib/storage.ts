@@ -90,22 +90,47 @@ export async function saveFile(
   // Ensure user directory exists
   const userPath = await ensureUserDirectory(userId);
   
-  // Create subdirectory and folder record if relativePath is provided
+  // Determine target folder - use folderId directly if provided
   let targetDir = userPath;
   let actualFolderId = folderId;
   
+  // If folderId is provided, verify it exists and get its path
+  if (folderId !== null) {
+    const folderResult = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+      [folderId, userId]
+    );
+    
+    if (folderResult[0]) {
+      targetDir = path.join(userPath, folderResult[0].path);
+      await fs.mkdir(targetDir, { recursive: true });
+    }
+  }
+  
+  // Handle relative path for folder uploads (nested folders within target)
   if (relativePath) {
     const folderPath = path.dirname(relativePath);
     
     if (folderPath && folderPath !== '.') {
-      // Create physical directory
-      targetDir = path.join(userPath, folderPath);
+      // Create physical directory under target
+      targetDir = path.join(targetDir, folderPath);
       await fs.mkdir(targetDir, { recursive: true });
       
       // Create folder records in database (nested folders)
       const folderParts = folderPath.split(/[\/\\]/);
       let parentId: number | null = folderId;
       let currentPath = '';
+      
+      // Get base path from parent folder
+      if (folderId !== null) {
+        const parentFolder = await query<Folder[]>(
+          'SELECT path FROM folders WHERE id = ?',
+          [folderId]
+        );
+        if (parentFolder[0]) {
+          currentPath = parentFolder[0].path;
+        }
+      }
       
       for (const folderName of folderParts) {
         if (!folderName) continue;
@@ -314,9 +339,25 @@ export async function deleteFolder(folderId: number, userId: number): Promise<vo
     console.error('Error deleting physical directory:', error);
   }
 
-  // Delete from database (cascades to files)
-  await query('DELETE FROM folders WHERE id = ? OR path LIKE ?', [folderId, `${folder.path}/%`]);
+  // Delete files in this folder from database
   await query('DELETE FROM files WHERE user_id = ? AND folder_id = ?', [userId, folderId]);
+  
+  // Delete files in subfolders
+  await query(
+    `DELETE FROM files WHERE user_id = ? AND folder_id IN (
+      SELECT id FROM folders WHERE user_id = ? AND path LIKE ?
+    )`,
+    [userId, userId, `${folder.path}/%`]
+  );
+
+  // Delete subfolders first (due to foreign key constraints)
+  await query(
+    'DELETE FROM folders WHERE user_id = ? AND path LIKE ?',
+    [userId, `${folder.path}/%`]
+  );
+  
+  // Delete the main folder
+  await query('DELETE FROM folders WHERE id = ?', [folderId]);
 
   // Update storage used
   await updateStorageUsed(userId, -totalSize);

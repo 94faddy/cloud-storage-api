@@ -50,9 +50,19 @@ export function isValidEmail(email: string): boolean {
   return emailRegex.test(email);
 }
 
+// Alias for isValidEmail
+export function validateEmail(email: string): boolean {
+  return isValidEmail(email);
+}
+
 export function isValidPassword(password: string): boolean {
-  // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
+  // At least 8 characters
   return password.length >= 8;
+}
+
+// Alias for isValidPassword
+export function validatePassword(password: string): boolean {
+  return isValidPassword(password);
 }
 
 export function sanitizeFilename(filename: string): string {
@@ -66,4 +76,31 @@ export function generateRandomString(length: number): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+export function formatBytes(bytes: number, decimals: number = 2): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+export function truncate(str: string, length: number): string {
+  if (str.length <= length) return str;
+  return str.slice(0, length) + '...';
 }

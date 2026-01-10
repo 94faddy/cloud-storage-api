@@ -18,9 +18,14 @@ export async function POST(request: NextRequest) {
       return apiError('Folder name is required', 400);
     }
 
-    // Validate folder name
-    if (!/^[a-zA-Z0-9_\-\s\.]+$/.test(name)) {
+    // Validate folder name - allow Thai characters, alphanumeric, spaces, dots, underscores, hyphens
+    if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(name)) {
       return apiError('Invalid folder name', 400);
+    }
+
+    // Check name length
+    if (name.length > 255) {
+      return apiError('Folder name too long', 400);
     }
 
     const folder = await createFolder(
@@ -33,7 +38,7 @@ export async function POST(request: NextRequest) {
     await logActivity(
       user.id,
       'create_folder',
-      { name: folder.name },
+      { name: folder.name, parentId },
       getClientIp(request),
       getUserAgent(request)
     );

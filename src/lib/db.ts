@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 
-const pool = mysql.createPool({
+export const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'root',
@@ -49,14 +49,16 @@ export async function initDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         name VARCHAR(100) NOT NULL,
-        \`key\` VARCHAR(64) UNIQUE NOT NULL,
+        api_key VARCHAR(100) NOT NULL,
+        key_prefix VARCHAR(20) NOT NULL,
         permissions JSON NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
         last_used_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP NULL,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        INDEX idx_key (\`key\`),
+        UNIQUE INDEX idx_api_key (api_key),
+        INDEX idx_key_prefix (key_prefix),
         INDEX idx_user_id (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
@@ -85,7 +87,7 @@ export async function initDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         folder_id INT NULL,
-        filename VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
         original_name VARCHAR(255) NOT NULL,
         mime_type VARCHAR(100) NOT NULL,
         size BIGINT NOT NULL,
@@ -99,7 +101,7 @@ export async function initDatabase() {
         INDEX idx_user_id (user_id),
         INDEX idx_folder_id (folder_id),
         INDEX idx_public_url (public_url),
-        INDEX idx_filename (filename)
+        INDEX idx_filename (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
@@ -110,14 +112,11 @@ export async function initDatabase() {
         user_id INT NOT NULL,
         api_key_id INT NULL,
         action VARCHAR(50) NOT NULL,
-        resource_type VARCHAR(50) NOT NULL,
-        resource_id INT NULL,
         details JSON NULL,
         ip_address VARCHAR(45) NULL,
         user_agent TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE SET NULL,
         INDEX idx_user_id (user_id),
         INDEX idx_created_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

@@ -14,8 +14,9 @@ export interface ApiKey {
   id: number;
   user_id: number;
   name: string;
-  key: string;
-  permissions: string;
+  api_key: string;
+  key_prefix: string;
+  permissions: string | ApiKeyPermissions;
   is_active: boolean;
   last_used_at: Date | null;
   created_at: Date;
@@ -98,3 +99,21 @@ export interface FolderListItem extends Folder {
 }
 
 export type FileSystemItem = FileListItem | FolderListItem;
+
+export interface UploadProgress {
+  id: string;
+  filename: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  error?: string;
+}
+
+export interface ActivityLog {
+  id: number;
+  user_id: number;
+  action: string;
+  details: any;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: Date;
+}
