@@ -1,0 +1,4 @@
+.next
+.output
+/node_modules
+package-lock.json

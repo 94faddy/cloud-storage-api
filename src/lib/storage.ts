@@ -1,0 +1,386 @@
+import fs from 'fs/promises';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import mime from 'mime-types';
+import { query } from './db';
+import { File, Folder, StorageStats, User } from '@/types';
+
+const STORAGE_PATH = process.env.STORAGE_PATH || './uploads';
+// NEXT_PUBLIC_MAX_FILE_SIZE_MB = 0 means unlimited
+const MAX_FILE_SIZE_MB = parseInt(process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '0');
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB > 0 ? (MAX_FILE_SIZE_MB * 1024 * 1024) : 0;
+
+export function getStoragePath(): string {
+  return path.resolve(process.cwd(), STORAGE_PATH);
+}
+
+export function getUserStoragePath(userId: number): string {
+  return path.join(getStoragePath(), `user_${userId}`);
+}
+
+export async function ensureUserDirectory(userId: number): Promise<string> {
+  const userPath = getUserStoragePath(userId);
+  await fs.mkdir(userPath, { recursive: true });
+  return userPath;
+}
+
+export async function getStorageStats(userId: number): Promise<StorageStats> {
+  const users = await query<User[]>(
+    'SELECT storage_used, storage_limit FROM users WHERE id = ?',
+    [userId]
+  );
+
+  const user = users[0];
+  if (!user) throw new Error('User not found');
+
+  const filesCount = await query<any[]>(
+    'SELECT COUNT(*) as count FROM files WHERE user_id = ?',
+    [userId]
+  );
+
+  const foldersCount = await query<any[]>(
+    'SELECT COUNT(*) as count FROM folders WHERE user_id = ?',
+    [userId]
+  );
+
+  return {
+    used: user.storage_used,
+    limit: user.storage_limit,
+    percentage: Math.round((user.storage_used / user.storage_limit) * 100),
+    files_count: filesCount[0]?.count || 0,
+    folders_count: foldersCount[0]?.count || 0,
+  };
+}
+
+export async function checkStorageLimit(userId: number, fileSize: number): Promise<boolean> {
+  const stats = await getStorageStats(userId);
+  return (stats.used + fileSize) <= stats.limit;
+}
+
+export async function updateStorageUsed(userId: number, sizeDelta: number): Promise<void> {
+  await query(
+    'UPDATE users SET storage_used = storage_used + ? WHERE id = ?',
+    [sizeDelta, userId]
+  );
+}
+
+export async function saveFile(
+  userId: number,
+  buffer: Buffer,
+  originalName: string,
+  folderId: number | null = null,
+  relativePath: string = ''
+): Promise<File> {
+  // Check file size (skip if unlimited - MAX_FILE_SIZE = 0)
+  if (MAX_FILE_SIZE > 0 && buffer.length > MAX_FILE_SIZE) {
+    throw new Error(`File size exceeds maximum allowed (${MAX_FILE_SIZE_MB}MB)`);
+  }
+
+  // Check storage limit
+  const hasSpace = await checkStorageLimit(userId, buffer.length);
+  if (!hasSpace) {
+    throw new Error('Storage limit exceeded');
+  }
+
+  // Generate unique filename
+  const ext = path.extname(originalName);
+  const filename = `${uuidv4()}${ext}`;
+  const mimeType = mime.lookup(originalName) || 'application/octet-stream';
+
+  // Ensure user directory exists
+  const userPath = await ensureUserDirectory(userId);
+  
+  // Create subdirectory and folder record if relativePath is provided
+  let targetDir = userPath;
+  let actualFolderId = folderId;
+  
+  if (relativePath) {
+    const folderPath = path.dirname(relativePath);
+    
+    if (folderPath && folderPath !== '.') {
+      // Create physical directory
+      targetDir = path.join(userPath, folderPath);
+      await fs.mkdir(targetDir, { recursive: true });
+      
+      // Create folder records in database (nested folders)
+      const folderParts = folderPath.split(/[\/\\]/);
+      let parentId: number | null = folderId;
+      let currentPath = '';
+      
+      for (const folderName of folderParts) {
+        if (!folderName) continue;
+        
+        currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+        
+        // Check if folder already exists
+        const existingFolders = await query<Folder[]>(
+          'SELECT * FROM folders WHERE user_id = ? AND path = ?',
+          [userId, currentPath]
+        );
+        
+        if (existingFolders[0]) {
+          parentId = existingFolders[0].id;
+        } else {
+          // Create new folder
+          const folderResult = await query<any>(
+            'INSERT INTO folders (user_id, parent_id, name, path) VALUES (?, ?, ?, ?)',
+            [userId, parentId, folderName, currentPath]
+          );
+          parentId = folderResult.insertId;
+        }
+      }
+      
+      actualFolderId = parentId;
+    }
+  }
+
+  const filePath = path.join(targetDir, filename);
+  const dbPath = path.relative(getStoragePath(), filePath);
+
+  // Save file
+  await fs.writeFile(filePath, buffer);
+
+  // Save to database
+  const result = await query<any>(
+    `INSERT INTO files (user_id, folder_id, name, original_name, mime_type, size, path)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, actualFolderId, filename, originalName, mimeType, buffer.length, dbPath]
+  );
+
+  // Update storage used
+  await updateStorageUsed(userId, buffer.length);
+
+  const files = await query<File[]>('SELECT * FROM files WHERE id = ?', [result.insertId]);
+  return files[0];
+}
+
+export async function deleteFile(fileId: number, userId: number): Promise<void> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ? AND user_id = ?',
+    [fileId, userId]
+  );
+
+  if (!files[0]) {
+    throw new Error('File not found');
+  }
+
+  const file = files[0];
+  const filePath = path.join(getStoragePath(), file.path);
+
+  // Delete physical file
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    console.error('Error deleting physical file:', error);
+  }
+
+  // Delete from database
+  await query('DELETE FROM files WHERE id = ?', [fileId]);
+
+  // Update storage used
+  await updateStorageUsed(userId, -file.size);
+}
+
+export async function getFile(fileId: number, userId: number): Promise<{ file: File; buffer: Buffer }> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ? AND user_id = ?',
+    [fileId, userId]
+  );
+
+  if (!files[0]) {
+    throw new Error('File not found');
+  }
+
+  const file = files[0];
+  const filePath = path.join(getStoragePath(), file.path);
+  const buffer = await fs.readFile(filePath);
+
+  return { file, buffer };
+}
+
+export async function getPublicFile(publicUrl: string): Promise<{ file: File; buffer: Buffer } | null> {
+  console.log('getPublicFile called with:', publicUrl);
+  
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE public_url = ? AND is_public = 1',
+    [publicUrl]
+  );
+
+  console.log('getPublicFile query result:', files.length > 0 ? files[0] : 'No file found');
+
+  if (!files[0]) return null;
+
+  const file = files[0];
+  const filePath = path.join(getStoragePath(), file.path);
+  console.log('getPublicFile filePath:', filePath);
+  
+  const buffer = await fs.readFile(filePath);
+
+  return { file, buffer };
+}
+
+export async function setFilePublic(fileId: number, userId: number, isPublic: boolean): Promise<File> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ? AND user_id = ?',
+    [fileId, userId]
+  );
+
+  if (!files[0]) {
+    throw new Error('File not found');
+  }
+
+  const publicUrl = isPublic ? uuidv4() : null;
+
+  await query(
+    'UPDATE files SET is_public = ?, public_url = ? WHERE id = ?',
+    [isPublic, publicUrl, fileId]
+  );
+
+  const updatedFiles = await query<File[]>('SELECT * FROM files WHERE id = ?', [fileId]);
+  return updatedFiles[0];
+}
+
+export async function createFolder(
+  userId: number,
+  name: string,
+  parentId: number | null = null
+): Promise<Folder> {
+  // Get parent path
+  let parentPath = '';
+  if (parentId) {
+    const parents = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+      [parentId, userId]
+    );
+    if (!parents[0]) {
+      throw new Error('Parent folder not found');
+    }
+    parentPath = parents[0].path;
+  }
+
+  const folderPath = parentPath ? `${parentPath}/${name}` : name;
+
+  // Check if folder already exists
+  const existing = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND path = ?',
+    [userId, folderPath]
+  );
+
+  if (existing[0]) {
+    throw new Error('Folder already exists');
+  }
+
+  const result = await query<any>(
+    'INSERT INTO folders (user_id, parent_id, name, path) VALUES (?, ?, ?, ?)',
+    [userId, parentId, name, folderPath]
+  );
+
+  // Create physical directory
+  const physicalPath = path.join(getUserStoragePath(userId), folderPath);
+  await fs.mkdir(physicalPath, { recursive: true });
+
+  const folders = await query<Folder[]>('SELECT * FROM folders WHERE id = ?', [result.insertId]);
+  return folders[0];
+}
+
+export async function deleteFolder(folderId: number, userId: number): Promise<void> {
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+    [folderId, userId]
+  );
+
+  if (!folders[0]) {
+    throw new Error('Folder not found');
+  }
+
+  const folder = folders[0];
+
+  // Get all files in this folder and subfolders
+  const files = await query<File[]>(
+    `SELECT * FROM files WHERE user_id = ? AND (folder_id = ? OR folder_id IN (
+      SELECT id FROM folders WHERE user_id = ? AND path LIKE ?
+    ))`,
+    [userId, folderId, userId, `${folder.path}/%`]
+  );
+
+  // Calculate total size to remove
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+
+  // Delete physical directory
+  const physicalPath = path.join(getUserStoragePath(userId), folder.path);
+  try {
+    await fs.rm(physicalPath, { recursive: true, force: true });
+  } catch (error) {
+    console.error('Error deleting physical directory:', error);
+  }
+
+  // Delete from database (cascades to files)
+  await query('DELETE FROM folders WHERE id = ? OR path LIKE ?', [folderId, `${folder.path}/%`]);
+  await query('DELETE FROM files WHERE user_id = ? AND folder_id = ?', [userId, folderId]);
+
+  // Update storage used
+  await updateStorageUsed(userId, -totalSize);
+}
+
+export async function listFiles(
+  userId: number,
+  folderId: number | null = null
+): Promise<{ files: File[]; folders: Folder[] }> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE user_id = ? AND folder_id <=> ? ORDER BY original_name',
+    [userId, folderId]
+  );
+
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND parent_id <=> ? ORDER BY name',
+    [userId, folderId]
+  );
+
+  return { files, folders };
+}
+
+export async function moveFile(
+  fileId: number,
+  userId: number,
+  targetFolderId: number | null
+): Promise<File> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ? AND user_id = ?',
+    [fileId, userId]
+  );
+
+  if (!files[0]) {
+    throw new Error('File not found');
+  }
+
+  // Verify target folder exists if provided
+  if (targetFolderId !== null) {
+    const targetFolders = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+      [targetFolderId, userId]
+    );
+    if (!targetFolders[0]) {
+      throw new Error('Target folder not found');
+    }
+  }
+
+  await query(
+    'UPDATE files SET folder_id = ? WHERE id = ?',
+    [targetFolderId, fileId]
+  );
+
+  const updatedFiles = await query<File[]>('SELECT * FROM files WHERE id = ?', [fileId]);
+  return updatedFiles[0];
+}
+
+export function formatBytes(bytes: number, decimals = 2): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
