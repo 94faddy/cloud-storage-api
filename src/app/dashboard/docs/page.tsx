@@ -29,9 +29,24 @@ const methodColors: Record<string, string> = {
 };
 
 export default function DocsPage() {
-  const [expandedSections, setExpandedSections] = useState<string[]>(['authentication', 'files', 'public']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['public', 'files']);
   const [activeEndpoint, setActiveEndpoint] = useState<string | null>(null);
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+  // Parse max file size - 0 or empty means unlimited
+  const maxFileSizeMB = parseInt(process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '0', 10);
+  const isFileSizeUnlimited = maxFileSizeMB === 0 || isNaN(maxFileSizeMB);
+
+  // Format file size display
+  const formatMaxFileSize = () => {
+    if (isFileSizeUnlimited) {
+      return 'ไม่จำกัด';
+    }
+    if (maxFileSizeMB >= 1024) {
+      return `${(maxFileSizeMB / 1024).toFixed(1)} GB`;
+    }
+    return `${maxFileSizeMB} MB`;
+  };
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev =>
@@ -54,256 +69,6 @@ export default function DocsPage() {
   };
 
   const endpointGroups: Record<string, EndpointGroup> = {
-    authentication: {
-      title: 'Authentication',
-      icon: <Key className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/auth/register',
-          description: 'สมัครสมาชิกใหม่',
-          auth: 'None',
-          body: {
-            username: 'string (ชื่อผู้ใช้)',
-            email: 'string (อีเมล)',
-            password: 'string (รหัสผ่าน 8+ ตัวอักษร)'
-          },
-          response: {
-            success: true,
-            message: 'ลงทะเบียนสำเร็จ',
-            data: {
-              user: { id: 1, username: 'john', email: 'john@example.com' }
-            }
-          },
-          example: `fetch('${baseUrl}/api/auth/register', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    username: 'john',
-    email: 'john@example.com',
-    password: 'mypassword123'
-  })
-})`
-        },
-        {
-          method: 'POST',
-          path: '/api/auth/login',
-          description: 'เข้าสู่ระบบ',
-          auth: 'None',
-          body: {
-            email: 'string',
-            password: 'string'
-          },
-          response: {
-            success: true,
-            message: 'เข้าสู่ระบบสำเร็จ',
-            data: { user: '{ ... }' }
-          },
-          example: `fetch('${baseUrl}/api/auth/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    email: 'john@example.com',
-    password: 'mypassword123'
-  }),
-  credentials: 'include' // สำคัญ: เพื่อรับ cookie
-})`
-        },
-        {
-          method: 'POST',
-          path: '/api/auth/logout',
-          description: 'ออกจากระบบ',
-          auth: 'Cookie',
-          response: { success: true, message: 'ออกจากระบบสำเร็จ' }
-        },
-        {
-          method: 'GET',
-          path: '/api/auth/me',
-          description: 'ดึงข้อมูลผู้ใช้ปัจจุบัน',
-          auth: 'Cookie',
-          response: {
-            success: true,
-            data: {
-              id: 1,
-              username: 'john',
-              email: 'john@example.com',
-              storage_used: 1073741824,
-              storage_limit: 53687091200
-            }
-          }
-        }
-      ]
-    },
-    files: {
-      title: 'Files Management (Web)',
-      icon: <Upload className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/files/upload',
-          description: 'อัพโหลดไฟล์ (ต้อง Login)',
-          auth: 'Cookie',
-          headers: { 'Content-Type': 'multipart/form-data' },
-          body: {
-            files: 'File[] (ไฟล์ที่ต้องการอัพโหลด)',
-            folderId: 'number? (ID โฟลเดอร์, optional)',
-            relativePath: 'string? (path สำหรับ directory upload)'
-          },
-          response: {
-            success: true,
-            data: {
-              uploaded: ['{ id, name, size, mime_type }'],
-              failed: []
-            }
-          }
-        },
-        {
-          method: 'GET',
-          path: '/api/files/download/:id',
-          description: 'ดาวน์โหลดไฟล์',
-          auth: 'Cookie',
-          response: { type: 'Binary file stream' }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/files/delete/:id',
-          description: 'ลบไฟล์',
-          auth: 'Cookie',
-          response: { success: true, message: 'ลบไฟล์สำเร็จ' }
-        },
-        {
-          method: 'GET',
-          path: '/api/files/list',
-          description: 'แสดงรายการไฟล์และโฟลเดอร์',
-          auth: 'Cookie',
-          body: { folderId: 'number? (ID โฟลเดอร์ parent)' },
-          response: {
-            success: true,
-            data: {
-              files: ['{ id, name, size, mime_type, is_public }'],
-              folders: ['{ id, name, parent_id }']
-            }
-          }
-        },
-        {
-          method: 'POST',
-          path: '/api/files/share',
-          description: 'สร้าง/ยกเลิก Public Link',
-          auth: 'Cookie',
-          body: {
-            fileId: 'number',
-            isPublic: 'boolean'
-          },
-          response: {
-            success: true,
-            data: { public_url: 'uuid-string หรือ null' }
-          }
-        },
-        {
-          method: 'POST',
-          path: '/api/files/move',
-          description: 'ย้ายไฟล์ไปโฟลเดอร์อื่น',
-          auth: 'Cookie',
-          body: {
-            fileId: 'number',
-            targetFolderId: 'number | null'
-          },
-          response: { success: true, message: 'ย้ายไฟล์สำเร็จ' }
-        }
-      ]
-    },
-    folders: {
-      title: 'Folders Management',
-      icon: <FolderPlus className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/folders/create',
-          description: 'สร้างโฟลเดอร์ใหม่',
-          auth: 'Cookie',
-          body: {
-            name: 'string (ชื่อโฟลเดอร์)',
-            parentId: 'number? (ID โฟลเดอร์ parent)'
-          },
-          response: {
-            success: true,
-            data: { id: 1, name: 'My Folder', path: '/My Folder' }
-          }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/folders/delete/:id',
-          description: 'ลบโฟลเดอร์ (รวมไฟล์ภายใน)',
-          auth: 'Cookie',
-          response: { success: true, message: 'ลบโฟลเดอร์สำเร็จ' }
-        },
-        {
-          method: 'GET',
-          path: '/api/folders/list',
-          description: 'แสดงรายการโฟลเดอร์',
-          auth: 'Cookie',
-          body: { parentId: 'number? (ID โฟลเดอร์ parent)' },
-          response: {
-            success: true,
-            data: ['{ id, name, parent_id, path }']
-          }
-        }
-      ]
-    },
-    apikeys: {
-      title: 'API Keys Management',
-      icon: <Key className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/apikeys/generate',
-          description: 'สร้าง API Key ใหม่',
-          auth: 'Cookie',
-          body: {
-            name: 'string (ชื่อ key)',
-            permissions: {
-              upload: 'boolean',
-              download: 'boolean',
-              delete: 'boolean',
-              list: 'boolean',
-              createFolder: 'boolean',
-              deleteFolder: 'boolean'
-            },
-            expiresIn: 'number? (วันที่หมดอายุ)'
-          },
-          response: {
-            success: true,
-            data: {
-              key: 'cv_xxxxxxxxxxxxxxxxxxxx',
-              id: 1
-            }
-          }
-        },
-        {
-          method: 'GET',
-          path: '/api/apikeys/list',
-          description: 'แสดงรายการ API Keys',
-          auth: 'Cookie',
-          response: {
-            success: true,
-            data: ['{ id, name, key_prefix, permissions, is_active, expires_at }']
-          }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/apikeys/revoke/:id',
-          description: 'ลบ API Key',
-          auth: 'Cookie'
-        },
-        {
-          method: 'PATCH',
-          path: '/api/apikeys/revoke/:id',
-          description: 'เปิด/ปิดใช้งาน API Key',
-          auth: 'Cookie',
-          body: { is_active: 'boolean' }
-        }
-      ]
-    },
     public: {
       title: 'Public API (External)',
       icon: <Globe className="w-5 h-5" />,
@@ -399,6 +164,214 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
   method: 'DELETE',
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
 });`
+        },
+        {
+          method: 'POST',
+          path: '/api/public/folders/create',
+          description: 'สร้างโฟลเดอร์ใหม่',
+          auth: 'API Key',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          body: {
+            name: 'string (ชื่อโฟลเดอร์)',
+            parentId: 'number? (ID โฟลเดอร์ parent)'
+          },
+          response: {
+            success: true,
+            data: { id: 1, name: 'My Folder', path: '/My Folder' }
+          },
+          example: `fetch('${baseUrl}/api/public/folders/create', {
+  method: 'POST',
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'My Folder',
+    parentId: null
+  })
+});`
+        },
+        {
+          method: 'DELETE',
+          path: '/api/public/folders/delete/:id',
+          description: 'ลบโฟลเดอร์ (รวมไฟล์ภายใน)',
+          auth: 'API Key',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          response: { success: true, message: 'ลบโฟลเดอร์สำเร็จ' },
+          example: `fetch('${baseUrl}/api/public/folders/delete/1', {
+  method: 'DELETE',
+  headers: { 'X-API-Key': 'cv_your_api_key_here' }
+});`
+        }
+      ]
+    },
+    files: {
+      title: 'Files Management (Web Only)',
+      icon: <Upload className="w-5 h-5" />,
+      endpoints: [
+        {
+          method: 'POST',
+          path: '/api/files/upload',
+          description: 'อัพโหลดไฟล์ (ต้อง Login)',
+          auth: 'Cookie',
+          headers: { 'Content-Type': 'multipart/form-data' },
+          body: {
+            files: 'File[] (ไฟล์ที่ต้องการอัพโหลด)',
+            folderId: 'number? (ID โฟลเดอร์, optional)',
+            relativePath: 'string? (path สำหรับ directory upload)'
+          },
+          response: {
+            success: true,
+            data: {
+              uploaded: ['{ id, name, size, mime_type }'],
+              failed: []
+            }
+          }
+        },
+        {
+          method: 'GET',
+          path: '/api/files/download/:id',
+          description: 'ดาวน์โหลดไฟล์',
+          auth: 'Cookie',
+          response: { type: 'Binary file stream' }
+        },
+        {
+          method: 'DELETE',
+          path: '/api/files/delete/:id',
+          description: 'ลบไฟล์',
+          auth: 'Cookie',
+          response: { success: true, message: 'ลบไฟล์สำเร็จ' }
+        },
+        {
+          method: 'GET',
+          path: '/api/files/list',
+          description: 'แสดงรายการไฟล์และโฟลเดอร์',
+          auth: 'Cookie',
+          body: { folderId: 'number? (ID โฟลเดอร์ parent)' },
+          response: {
+            success: true,
+            data: {
+              files: ['{ id, name, size, mime_type, is_public }'],
+              folders: ['{ id, name, parent_id }']
+            }
+          }
+        },
+        {
+          method: 'POST',
+          path: '/api/files/share',
+          description: 'สร้าง/ยกเลิก Public Link',
+          auth: 'Cookie',
+          body: {
+            fileId: 'number',
+            isPublic: 'boolean'
+          },
+          response: {
+            success: true,
+            data: { public_url: 'uuid-string หรือ null' }
+          }
+        },
+        {
+          method: 'POST',
+          path: '/api/files/move',
+          description: 'ย้ายไฟล์ไปโฟลเดอร์อื่น',
+          auth: 'Cookie',
+          body: {
+            fileId: 'number',
+            targetFolderId: 'number | null'
+          },
+          response: { success: true, message: 'ย้ายไฟล์สำเร็จ' }
+        }
+      ]
+    },
+    folders: {
+      title: 'Folders Management (Web Only)',
+      icon: <FolderPlus className="w-5 h-5" />,
+      endpoints: [
+        {
+          method: 'POST',
+          path: '/api/folders/create',
+          description: 'สร้างโฟลเดอร์ใหม่',
+          auth: 'Cookie',
+          body: {
+            name: 'string (ชื่อโฟลเดอร์)',
+            parentId: 'number? (ID โฟลเดอร์ parent)'
+          },
+          response: {
+            success: true,
+            data: { id: 1, name: 'My Folder', path: '/My Folder' }
+          }
+        },
+        {
+          method: 'DELETE',
+          path: '/api/folders/delete/:id',
+          description: 'ลบโฟลเดอร์ (รวมไฟล์ภายใน)',
+          auth: 'Cookie',
+          response: { success: true, message: 'ลบโฟลเดอร์สำเร็จ' }
+        },
+        {
+          method: 'GET',
+          path: '/api/folders/list',
+          description: 'แสดงรายการโฟลเดอร์',
+          auth: 'Cookie',
+          body: { parentId: 'number? (ID โฟลเดอร์ parent)' },
+          response: {
+            success: true,
+            data: ['{ id, name, parent_id, path }']
+          }
+        }
+      ]
+    },
+    apikeys: {
+      title: 'API Keys Management (Web Only)',
+      icon: <Key className="w-5 h-5" />,
+      endpoints: [
+        {
+          method: 'POST',
+          path: '/api/apikeys/generate',
+          description: 'สร้าง API Key ใหม่',
+          auth: 'Cookie',
+          body: {
+            name: 'string (ชื่อ key)',
+            permissions: {
+              upload: 'boolean',
+              download: 'boolean',
+              delete: 'boolean',
+              list: 'boolean',
+              createFolder: 'boolean',
+              deleteFolder: 'boolean'
+            },
+            expiresIn: 'number? (วันที่หมดอายุ)'
+          },
+          response: {
+            success: true,
+            data: {
+              key: 'cv_xxxxxxxxxxxxxxxxxxxx',
+              id: 1
+            }
+          }
+        },
+        {
+          method: 'GET',
+          path: '/api/apikeys/list',
+          description: 'แสดงรายการ API Keys',
+          auth: 'Cookie',
+          response: {
+            success: true,
+            data: ['{ id, name, key_prefix, permissions, is_active, expires_at }']
+          }
+        },
+        {
+          method: 'DELETE',
+          path: '/api/apikeys/revoke/:id',
+          description: 'ลบ API Key',
+          auth: 'Cookie'
+        },
+        {
+          method: 'PATCH',
+          path: '/api/apikeys/revoke/:id',
+          description: 'เปิด/ปิดใช้งาน API Key',
+          auth: 'Cookie',
+          body: { is_active: 'boolean' }
         }
       ]
     }
@@ -448,6 +421,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
             <h3 className="font-medium text-green-400 mb-2">🔐 Cookie Auth (Web)</h3>
             <p className="text-sm text-gray-400">
               สำหรับใช้งานผ่าน Web Browser หลังจาก Login ระบบจะ set cookie อัตโนมัติ
+              (ใช้ได้เฉพาะบน Website เท่านั้น)
             </p>
           </div>
           <div className="bg-gray-800/50 rounded-lg p-4">
@@ -476,8 +450,8 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
             <p className="text-gray-400">พื้นที่จัดเก็บต่อผู้ใช้</p>
           </div>
           <div className="bg-gray-800/50 rounded-lg p-4">
-            <div className="text-2xl font-bold text-green-400 mb-1">
-              {process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '500'} MB
+            <div className={`text-2xl font-bold mb-1 ${isFileSizeUnlimited ? 'text-green-400' : 'text-yellow-400'}`}>
+              {formatMaxFileSize()}
             </div>
             <p className="text-gray-400">ขนาดไฟล์สูงสุดต่อไฟล์</p>
           </div>
@@ -805,7 +779,13 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
 # Delete file
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
-  "${baseUrl}/api/public/delete/123"`}
+  "${baseUrl}/api/public/delete/123"
+
+# Create folder
+curl -X POST ${baseUrl}/api/public/folders/create \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "My Folder"}'`}
             </pre>
           </div>
         </div>
@@ -850,7 +830,12 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
               <tr>
                 <td className="p-3"><code className="text-purple-400">413</code></td>
                 <td className="p-3">Payload Too Large</td>
-                <td className="p-3 text-gray-400">ไฟล์ใหญ่เกินกำหนด ({process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '500'} MB)</td>
+                <td className="p-3 text-gray-400">
+                  {isFileSizeUnlimited 
+                    ? 'ไฟล์ใหญ่เกินไป (ไม่มีข้อจำกัดที่ตั้งไว้ แต่อาจถูกจำกัดโดย server)'
+                    : `ไฟล์ใหญ่เกินกำหนด (${formatMaxFileSize()})`
+                  }
+                </td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-pink-400">507</code></td>

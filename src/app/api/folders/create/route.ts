@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { getUserFromRequest, logActivity } from '@/lib/auth';
 import { createFolder } from '@/lib/storage';

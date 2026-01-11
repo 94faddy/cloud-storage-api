@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
@@ -9,7 +10,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) {
-      return NextResponse.json(apiError('กรุณาเข้าสู่ระบบ'), { status: 401 });
+      return apiError('กรุณาเข้าสู่ระบบ', 401);
     }
 
     const connection = await pool.getConnection();
@@ -43,7 +44,7 @@ export async function DELETE(request: NextRequest) {
       }
 
       // Clear auth cookie
-      const response = NextResponse.json(apiResponse(null, 'ลบบัญชีสำเร็จ'));
+      const response = apiResponse(null, 200, 'ลบบัญชีสำเร็จ');
       response.cookies.delete('auth_token');
 
       return response;
@@ -57,6 +58,6 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Account delete error:', error);
-    return NextResponse.json(apiError('เกิดข้อผิดพลาด'), { status: 500 });
+    return apiError('เกิดข้อผิดพลาด', 500);
   }
 }

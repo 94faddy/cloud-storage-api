@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import fs from 'fs/promises';
@@ -39,7 +40,7 @@ export async function GET(
 
     const buffer = await fs.readFile(filePath);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': file.mime_type,

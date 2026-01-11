@@ -16,7 +16,24 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  // Convert expiry string to seconds
+  const parseExpiry = (expiry: string): number => {
+    const match = expiry.match(/^(\d+)([smhd])$/);
+    if (!match) return 7 * 24 * 60 * 60; // default 7 days
+    const value = parseInt(match[1]);
+    const unit = match[2];
+    switch (unit) {
+      case 's': return value;
+      case 'm': return value * 60;
+      case 'h': return value * 60 * 60;
+      case 'd': return value * 24 * 60 * 60;
+      default: return 7 * 24 * 60 * 60;
+    }
+  };
+
+  const expiresInSeconds = parseExpiry(JWT_EXPIRES_IN);
+  
+  return jwt.sign(payload as object, JWT_SECRET, { expiresIn: expiresInSeconds });
 }
 
 export function verifyToken(token: string): JWTPayload | null {

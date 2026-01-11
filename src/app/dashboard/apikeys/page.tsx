@@ -7,6 +7,7 @@ import Swal from 'sweetalert2';
 interface ApiKey {
   id: number;
   key_prefix: string;
+  api_key: string;  // Added this property
   name: string;
   permissions: {
     upload: boolean;

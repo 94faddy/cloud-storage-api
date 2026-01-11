@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, logActivity } from '@/lib/auth';
 import { getFile } from '@/lib/storage';
@@ -30,7 +31,7 @@ export async function GET(
       getUserAgent(request)
     );
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': file.mime_type,

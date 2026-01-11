@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { getUserFromRequest, generateApiKey, logActivity } from '@/lib/auth';
 import { query } from '@/lib/db';

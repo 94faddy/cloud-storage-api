@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey, logActivity } from '@/lib/auth';
 import { getFile, getPublicFile } from '@/lib/storage';
@@ -26,7 +27,7 @@ export async function GET(
         return apiError('File not found or not public', 404);
       }
 
-      return new NextResponse(result.buffer, {
+      return new NextResponse(new Uint8Array(result.buffer), {
         status: 200,
         headers: {
           'Content-Type': result.file.mime_type,
@@ -63,7 +64,7 @@ export async function GET(
       getUserAgent(request)
     );
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': file.mime_type,

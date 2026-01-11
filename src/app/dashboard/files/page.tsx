@@ -9,6 +9,13 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
+// Helper function to trigger storage update
+const triggerStorageUpdate = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('storage-updated'));
+  }
+};
+
 interface FileItem {
   id: number;
   filename: string;
@@ -176,7 +183,7 @@ export default function FilesPage() {
         formData.append('relativePaths', relativePath);
       }
 
-      // Add current folder ID - THIS IS THE KEY FIX
+      // Add current folder ID
       if (currentFolder !== null) {
         formData.append('folderId', currentFolder.toString());
       }
@@ -193,7 +200,7 @@ export default function FilesPage() {
             const progress = Math.round((event.loaded / event.total) * 100);
             
             // Calculate speed (bytes per second)
-            const timeDiff = (now - lastTime) / 1000; // in seconds
+            const timeDiff = (now - lastTime) / 1000;
             const bytesDiff = event.loaded - lastLoaded;
             const currentSpeed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
             
@@ -299,8 +306,9 @@ export default function FilesPage() {
     setIsUploading(false);
     setUploadComplete(true);
     
-    // Refresh file list
+    // Refresh file list and trigger storage update
     fetchFiles(currentFolder);
+    triggerStorageUpdate(); // Update sidebar storage stats
 
     // Show completion message
     if (successful === pendingFiles.length) {
@@ -444,6 +452,7 @@ export default function FilesPage() {
             color: '#fff',
           });
           fetchFiles(currentFolder);
+          triggerStorageUpdate(); // Update sidebar storage stats
         } else {
           Swal.fire({
             icon: 'error',
@@ -488,6 +497,7 @@ export default function FilesPage() {
             color: '#fff',
           });
           fetchFiles(currentFolder);
+          triggerStorageUpdate(); // Update sidebar storage stats
         }
       } catch (error) {
         console.error('Error deleting file:', error);
@@ -523,6 +533,7 @@ export default function FilesPage() {
             color: '#fff',
           });
           fetchFiles(currentFolder);
+          triggerStorageUpdate(); // Update sidebar storage stats
         }
       } catch (error) {
         console.error('Error deleting folder:', error);
@@ -1138,7 +1149,7 @@ export default function FilesPage() {
                               >
                                 <X className="w-4 h-4" />
                               </button>
-                            ) : uploadFile.status !== 'uploading' && (
+                            ) : (
                               <button
                                 onClick={() => removeFromQueue(uploadFile.id)}
                                 className="p-1.5 hover:bg-gray-700 rounded text-gray-400"

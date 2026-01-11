@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Cloud, LayoutDashboard, FolderOpen, Key, Book,
-  Settings, LogOut, Menu, X, ChevronRight, HardDrive
+  Settings, LogOut, Menu, X, ChevronRight, HardDrive, RefreshCw
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -37,6 +37,24 @@ export default function DashboardLayout({
   const [stats, setStats] = useState<StorageStats | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchStats = useCallback(async (showRefresh = false) => {
+    try {
+      if (showRefresh) setRefreshing(true);
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      
+      if (data.success) {
+        setUser(data.data.user);
+        setStats(data.data.stats);
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    } finally {
+      if (showRefresh) setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -59,6 +77,41 @@ export default function DashboardLayout({
     fetchUser();
   }, [router]);
 
+  // Polling for realtime updates every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchStats();
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchStats]);
+
+  // Listen for custom storage update events
+  useEffect(() => {
+    const handleStorageUpdate = () => {
+      fetchStats(true);
+    };
+
+    // Listen for custom event when files are uploaded/deleted
+    window.addEventListener('storage-updated', handleStorageUpdate);
+    
+    // Also listen for focus to refresh when user comes back to tab
+    const handleFocus = () => {
+      fetchStats();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('storage-updated', handleStorageUpdate);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [fetchStats]);
+
+  // Refresh when pathname changes (navigating between pages)
+  useEffect(() => {
+    fetchStats();
+  }, [pathname, fetchStats]);
+
   const handleLogout = async () => {
     const result = await Swal.fire({
       title: 'ออกจากระบบ?',
@@ -76,6 +129,10 @@ export default function DashboardLayout({
       await fetch('/api/auth/logout', { method: 'POST' });
       router.push('/login');
     }
+  };
+
+  const handleManualRefresh = () => {
+    fetchStats(true);
   };
 
   const formatBytes = (bytes: number) => {
@@ -153,17 +210,31 @@ export default function DashboardLayout({
                   <HardDrive className="w-3 h-3" />
                   พื้นที่ใช้งาน
                 </span>
-                <span>{stats.percentage}%</span>
+                <div className="flex items-center gap-2">
+                  <span>{stats.percentage}%</span>
+                  <button 
+                    onClick={handleManualRefresh}
+                    className="hover:text-white transition-colors"
+                    title="รีเฟรช"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
               <div className="progress-bar">
                 <div
-                  className="progress-bar-fill"
+                  className="progress-bar-fill transition-all duration-500"
                   style={{ width: `${Math.min(stats.percentage, 100)}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {formatBytes(stats.used)} / {formatBytes(stats.limit)}
-              </p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-xs text-gray-500">
+                  {formatBytes(stats.used)} / {formatBytes(stats.limit)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {stats.files_count} ไฟล์
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -208,4 +279,11 @@ export default function DashboardLayout({
       </main>
     </div>
   );
+}
+
+// Helper function to trigger storage update from other components
+export function triggerStorageUpdate() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('storage-updated'));
+  }
 }
