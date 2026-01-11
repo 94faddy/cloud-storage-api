@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { getUserFromRequest, logActivity } from '@/lib/auth';
-import { setFilePublic } from '@/lib/storage';
+import { setFolderPublic } from '@/lib/storage';
 import { apiResponse, apiError, getClientIp, getUserAgent } from '@/lib/utils';
 
 export async function POST(request: NextRequest) {
@@ -13,14 +13,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { fileId, isPublic } = body;
+    const { folderId, isPublic } = body;
 
-    if (!fileId) {
-      return apiError('File ID is required', 400);
+    if (!folderId) {
+      return apiError('Folder ID is required', 400);
     }
 
-    const file = await setFilePublic(
-      parseInt(fileId),
+    const folder = await setFolderPublic(
+      parseInt(folderId),
       user.id,
       isPublic !== false
     );
@@ -28,15 +28,15 @@ export async function POST(request: NextRequest) {
     // Log activity
     await logActivity(
       user.id,
-      isPublic ? 'share_file' : 'unshare_file',
-      { name: file.original_name, publicUrl: file.public_url },
+      isPublic ? 'share_folder' : 'unshare_folder',
+      { name: folder.name, publicUrl: folder.public_url },
       getClientIp(request),
       getUserAgent(request)
     );
 
-    return apiResponse(file, 200, isPublic ? 'File shared successfully' : 'File unshared');
+    return apiResponse(folder, 200, isPublic ? 'Folder shared successfully' : 'Folder unshared');
   } catch (error: any) {
-    console.error('Share file error:', error);
-    return apiError(error.message || 'Failed to share file', 500);
+    console.error('Share folder error:', error);
+    return apiError(error.message || 'Failed to share folder', 500);
   }
 }

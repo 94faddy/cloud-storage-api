@@ -63,7 +63,7 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    // Folders table
+    // Folders table with sharing support
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS folders (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -71,13 +71,16 @@ export async function initDatabase() {
         parent_id INT NULL,
         name VARCHAR(255) NOT NULL,
         path VARCHAR(1000) NOT NULL,
+        is_public BOOLEAN DEFAULT FALSE,
+        public_url VARCHAR(100) NULL UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
         INDEX idx_user_id (user_id),
         INDEX idx_parent_id (parent_id),
-        INDEX idx_path (path(255))
+        INDEX idx_path (path(255)),
+        INDEX idx_public_url (public_url)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
@@ -121,6 +124,15 @@ export async function initDatabase() {
         INDEX idx_created_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Try to add columns for existing databases
+    try {
+      await connection.execute(`ALTER TABLE folders ADD COLUMN is_public BOOLEAN DEFAULT FALSE`);
+    } catch (e) {}
+    
+    try {
+      await connection.execute(`ALTER TABLE folders ADD COLUMN public_url VARCHAR(100) NULL UNIQUE`);
+    } catch (e) {}
 
     console.log('Database initialized successfully');
   } catch (error) {

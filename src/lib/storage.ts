@@ -265,6 +265,141 @@ export async function setFilePublic(fileId: number, userId: number, isPublic: bo
   return updatedFiles[0];
 }
 
+export async function setFolderPublic(folderId: number, userId: number, isPublic: boolean): Promise<Folder> {
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+    [folderId, userId]
+  );
+
+  if (!folders[0]) {
+    throw new Error('Folder not found');
+  }
+
+  const publicUrl = isPublic ? uuidv4() : null;
+
+  await query(
+    'UPDATE folders SET is_public = ?, public_url = ? WHERE id = ?',
+    [isPublic, publicUrl, folderId]
+  );
+
+  const updatedFolders = await query<Folder[]>('SELECT * FROM folders WHERE id = ?', [folderId]);
+  return updatedFolders[0];
+}
+
+export async function getPublicFolder(publicUrl: string): Promise<Folder | null> {
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE public_url = ? AND is_public = 1',
+    [publicUrl]
+  );
+
+  return folders[0] || null;
+}
+
+export async function getSharedContent(shareId: string): Promise<{
+  type: 'file' | 'folder';
+  item: File | Folder;
+  ownerName: string;
+} | null> {
+  // Check if it's a file
+  const files = await query<any[]>(
+    `SELECT f.*, u.username as owner_name 
+     FROM files f 
+     JOIN users u ON f.user_id = u.id 
+     WHERE f.public_url = ? AND f.is_public = 1`,
+    [shareId]
+  );
+
+  if (files[0]) {
+    return {
+      type: 'file',
+      item: files[0],
+      ownerName: files[0].owner_name
+    };
+  }
+
+  // Check if it's a folder
+  const folders = await query<any[]>(
+    `SELECT f.*, u.username as owner_name 
+     FROM folders f 
+     JOIN users u ON f.user_id = u.id 
+     WHERE f.public_url = ? AND f.is_public = 1`,
+    [shareId]
+  );
+
+  if (folders[0]) {
+    return {
+      type: 'folder',
+      item: folders[0],
+      ownerName: folders[0].owner_name
+    };
+  }
+
+  return null;
+}
+
+export async function getSharedFolderContents(
+  folderId: number,
+  subPath: string = ''
+): Promise<{ files: File[]; folders: Folder[] }> {
+  let targetFolderId = folderId;
+
+  // If subPath is provided, find the actual folder
+  if (subPath) {
+    const folder = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ?',
+      [folderId]
+    );
+
+    if (!folder[0]) {
+      throw new Error('Folder not found');
+    }
+
+    const fullPath = `${folder[0].path}/${subPath}`;
+    const subFolder = await query<Folder[]>(
+      'SELECT * FROM folders WHERE user_id = ? AND path = ?',
+      [folder[0].user_id, fullPath]
+    );
+
+    if (subFolder[0]) {
+      targetFolderId = subFolder[0].id;
+    } else {
+      return { files: [], folders: [] };
+    }
+  }
+
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE folder_id = ? ORDER BY original_name',
+    [targetFolderId]
+  );
+
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE parent_id = ? ORDER BY name',
+    [targetFolderId]
+  );
+
+  return { files, folders };
+}
+
+export async function getFileById(fileId: number): Promise<{ file: File; buffer: Buffer } | null> {
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ?',
+    [fileId]
+  );
+
+  if (!files[0]) return null;
+
+  const file = files[0];
+  const filePath = path.join(getStoragePath(), file.path);
+  
+  try {
+    const buffer = await fs.readFile(filePath);
+    return { file, buffer };
+  } catch (error) {
+    console.error('Error reading file:', error);
+    return null;
+  }
+}
+
 export async function createFolder(
   userId: number,
   name: string,

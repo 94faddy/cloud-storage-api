@@ -44,6 +44,8 @@ export interface Folder {
   parent_id: number | null;
   name: string;
   path: string;
+  is_public: boolean;
+  public_url: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -116,4 +118,10 @@ export interface ActivityLog {
   ip_address: string | null;
   user_agent: string | null;
   created_at: Date;
+}
+
+export interface SharedContent {
+  type: 'file' | 'folder';
+  item: File | Folder;
+  ownerName: string;
 }
