@@ -1,37 +1,59 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server';
-import { query, initDatabase } from '@/lib/db';
+import { NextRequest } from 'next/server';
+import { query } from '@/lib/db';
 import { verifyPassword, generateToken } from '@/lib/auth';
 import { apiResponse, apiError } from '@/lib/utils';
-import { User } from '@/types';
+
+interface UserWithPassword {
+  id: number;
+  email: string;
+  username: string;
+  password: string;
+  storage_used: number;
+  storage_limit: number;
+  is_admin: boolean;
+  email_verified: boolean;
+  created_at: Date;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    await initDatabase();
-
     const body = await request.json();
     const { email, password } = body;
 
+    // Validation
     if (!email || !password) {
-      return apiError('Email and password are required', 400);
+      return apiError('กรุณากรอกอีเมลและรหัสผ่าน', 400);
     }
 
-    // Get user
-    const users = await query<(User & { password: string })[]>(
+    // Find user
+    const users = await query<UserWithPassword[]>(
       'SELECT * FROM users WHERE email = ?',
       [email]
     );
 
     if (users.length === 0) {
-      return apiError('Invalid email or password', 401);
+      return apiError('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401);
     }
 
     const user = users[0];
 
     // Verify password
     const isValid = await verifyPassword(password, user.password);
+
     if (!isValid) {
-      return apiError('Invalid email or password', 401);
+      return apiError('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401);
+    }
+
+    // Check email verification (if enabled)
+    const emailVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED === 'true';
+    
+    if (emailVerificationEnabled && !user.email_verified) {
+      return apiError(
+        'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ',
+        403,
+        { requiresVerification: true, email: user.email }
+      );
     }
 
     // Generate token
@@ -44,10 +66,11 @@ export async function POST(request: NextRequest) {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
+    // Create response with cookie
     const response = apiResponse(
       { user: userWithoutPassword, token },
       200,
-      'Login successful'
+      'เข้าสู่ระบบสำเร็จ'
     );
 
     response.cookies.set('auth_token', token, {
@@ -61,6 +84,6 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error: any) {
     console.error('Login error:', error);
-    return apiError(error.message || 'Login failed', 500);
+    return apiError(error.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่', 500);
   }
 }

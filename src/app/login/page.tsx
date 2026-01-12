@@ -30,25 +30,50 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (data.success) {
-        await Swal.fire({
-          icon: 'success',
-          title: 'เข้าสู่ระบบสำเร็จ!',
-          text: 'กำลังพาคุณไปยังหน้า Dashboard...',
-          timer: 1500,
-          showConfirmButton: false,
-          background: '#1e293b',
-          color: '#fff',
-        });
         router.push('/dashboard');
       } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'เข้าสู่ระบบไม่สำเร็จ',
-          text: data.error || 'กรุณาตรวจสอบอีเมลและรหัสผ่าน',
-          background: '#1e293b',
-          color: '#fff',
-          confirmButtonColor: '#6366f1',
-        });
+        // Check if email verification is required
+        if (data.data?.requiresVerification) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'กรุณายืนยันอีเมล',
+            text: 'คุณยังไม่ได้ยืนยันอีเมล ตรวจสอบกล่องจดหมายของคุณ',
+            showCancelButton: true,
+            confirmButtonText: 'ส่งอีเมลยืนยันอีกครั้ง',
+            cancelButtonText: 'ปิด',
+            background: '#1e293b',
+            color: '#fff',
+            confirmButtonColor: '#6366f1',
+          }).then(async (result) => {
+            if (result.isConfirmed) {
+              // Resend verification email
+              const resendRes = await fetch('/api/auth/verify-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: formData.email }),
+              });
+              const resendData = await resendRes.json();
+              
+              Swal.fire({
+                icon: resendData.success ? 'success' : 'error',
+                title: resendData.success ? 'ส่งอีเมลแล้ว!' : 'เกิดข้อผิดพลาด',
+                text: resendData.message || resendData.error,
+                background: '#1e293b',
+                color: '#fff',
+                confirmButtonColor: '#6366f1',
+              });
+            }
+          });
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'เข้าสู่ระบบไม่สำเร็จ',
+            text: data.error || 'กรุณาตรวจสอบอีเมลและรหัสผ่าน',
+            background: '#1e293b',
+            color: '#fff',
+            confirmButtonColor: '#6366f1',
+          });
+        }
       }
     } catch (error) {
       Swal.fire({
@@ -80,7 +105,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-white text-center mb-2">ยินดีต้อนรับกลับ</h1>
           <p className="text-gray-400 text-center mb-8">เข้าสู่ระบบเพื่อจัดการไฟล์ของคุณ</p>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">อีเมล</label>
               <div className="relative">
@@ -97,13 +122,18 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">รหัสผ่าน</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-300">รหัสผ่าน</label>
+                <Link href="/forgot-password" className="text-sm text-blue-400 hover:text-blue-300">
+                  ลืมรหัสผ่าน?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="password"
                   className="input pl-10"
-                  placeholder="••••••••"
+                  placeholder="รหัสผ่านของคุณ"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required

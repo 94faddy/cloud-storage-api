@@ -61,16 +61,23 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (data.success) {
-        await Swal.fire({
-          icon: 'success',
-          title: 'สมัครสมาชิกสำเร็จ!',
-          text: 'กำลังพาคุณไปยังหน้า Dashboard...',
-          timer: 1500,
-          showConfirmButton: false,
-          background: '#1e293b',
-          color: '#fff',
-        });
-        router.push('/dashboard');
+        // Check if email verification is required
+        if (data.data?.requiresVerification) {
+          // Redirect to verification pending page
+          router.push(`/registration-success?email=${encodeURIComponent(formData.email)}`);
+        } else {
+          // Email verification disabled - go straight to dashboard
+          await Swal.fire({
+            icon: 'success',
+            title: 'สมัครสมาชิกสำเร็จ!',
+            text: 'กำลังพาคุณไปยังหน้า Dashboard...',
+            timer: 1500,
+            showConfirmButton: false,
+            background: '#1e293b',
+            color: '#fff',
+          });
+          router.push('/dashboard');
+        }
       } else {
         Swal.fire({
           icon: 'error',
@@ -141,6 +148,7 @@ export default function RegisterPage() {
                   required
                 />
               </div>
+              <p className="text-xs text-gray-500 mt-1">เราจะส่งลิงก์ยืนยันไปที่อีเมลนี้</p>
             </div>
 
             <div>

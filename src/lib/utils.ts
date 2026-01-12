@@ -1,75 +1,104 @@
-import { NextResponse } from 'next/server';
-import { ApiResponse } from '@/types';
+import { NextResponse, NextRequest } from 'next/server';
 
-export function apiResponse<T>(
-  data: T,
-  status: number = 200,
-  message?: string
-): NextResponse<ApiResponse<T>> {
+// API Response helpers
+export function apiResponse(data: any, status: number = 200, message?: string) {
   return NextResponse.json(
     {
-      success: status >= 200 && status < 300,
+      success: true,
+      data,
       message,
+    },
+    { status }
+  );
+}
+
+export function apiError(error: string, status: number = 500, data?: any) {
+  return NextResponse.json(
+    {
+      success: false,
+      error,
       data,
     },
     { status }
   );
 }
 
-export function apiError(
-  message: string,
-  status: number = 400
-): NextResponse<ApiResponse> {
-  return NextResponse.json(
-    {
-      success: false,
-      error: message,
-    },
-    { status }
-  );
-}
-
-export function getClientIp(request: Request): string {
+// Get client IP from request
+export function getClientIp(request: NextRequest): string {
   const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-  return request.headers.get('x-real-ip') || 'unknown';
+  const realIp = request.headers.get('x-real-ip');
+  const cfConnectingIp = request.headers.get('cf-connecting-ip');
+  
+  if (cfConnectingIp) return cfConnectingIp;
+  if (forwarded) return forwarded.split(',')[0].trim();
+  if (realIp) return realIp;
+  
+  return '127.0.0.1';
 }
 
-export function getUserAgent(request: Request): string {
-  return request.headers.get('user-agent') || 'unknown';
+// Get user agent from request
+export function getUserAgent(request: NextRequest): string {
+  return request.headers.get('user-agent') || 'Unknown';
 }
 
-export async function parseFormData(request: Request): Promise<FormData> {
-  return await request.formData();
-}
-
-export function isValidEmail(email: string): boolean {
+// Validate email format
+export function validateEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
 
-// Alias for isValidEmail
-export function validateEmail(email: string): boolean {
-  return isValidEmail(email);
+// Validate password strength
+export function validatePassword(password: string): { valid: boolean; message?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, message: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' };
+  }
+  return { valid: true };
 }
 
-export function isValidPassword(password: string): boolean {
-  // At least 8 characters
-  return password.length >= 8;
+// Validate email (alias for isValidEmail)
+export function isValidEmail(email: string): boolean {
+  return validateEmail(email);
 }
 
-// Alias for isValidPassword
-export function validatePassword(password: string): boolean {
-  return isValidPassword(password);
+// Format file size
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-export function sanitizeFilename(filename: string): string {
-  return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+// Format date
+export function formatDate(date: Date | string): string {
+  const d = new Date(date);
+  return d.toLocaleDateString('th-TH', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
-export function generateRandomString(length: number): string {
+// Get file icon based on mime type
+export function getFileIcon(mimeType: string): string {
+  if (mimeType.startsWith('image/')) return '🖼️';
+  if (mimeType.startsWith('video/')) return '🎬';
+  if (mimeType.startsWith('audio/')) return '🎵';
+  if (mimeType.includes('pdf')) return '📄';
+  if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
+  if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📽️';
+  if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('7z')) return '📦';
+  if (mimeType.includes('text')) return '📃';
+  return '📁';
+}
+
+// Generate random string
+export function generateRandomString(length: number = 32): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
   for (let i = 0; i < length; i++) {
@@ -78,29 +107,33 @@ export function generateRandomString(length: number): string {
   return result;
 }
 
-export function formatBytes(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return '0 Bytes';
-
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+// Sanitize filename
+export function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/__+/g, '_')
+    .substring(0, 255);
 }
 
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w\-]+/g, '')
-    .replace(/\-\-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '');
+// Calculate storage percentage
+export function calculateStoragePercentage(used: number, limit: number): number {
+  if (limit === 0) return 0;
+  return Math.min(Math.round((used / limit) * 100), 100);
 }
 
-export function truncate(str: string, length: number): string {
-  if (str.length <= length) return str;
-  return str.slice(0, length) + '...';
+// Debounce function
+export function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// Tailwind class merger (simple version)
+export function cn(...classes: (string | undefined | null | false)[]): string {
+  return classes.filter(Boolean).join(' ');
 }
