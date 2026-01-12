@@ -8,6 +8,29 @@ import { Cloud, Zap, Shield, Code, ArrowRight, Upload, Folder, Key } from 'lucid
 export default function Home() {
   const router = useRouter();
 
+  // Parse max file size - 0 or empty means unlimited
+  const maxFileSizeMB = parseInt(process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '0', 10);
+  const isFileSizeUnlimited = maxFileSizeMB === 0 || isNaN(maxFileSizeMB);
+  const maxStorageGB = process.env.NEXT_PUBLIC_MAX_STORAGE_GB || '50';
+
+  // Format file size display
+  const getMaxFileSizeDisplay = () => {
+    if (isFileSizeUnlimited) {
+      return '∞';
+    }
+    if (maxFileSizeMB >= 1024) {
+      return `${(maxFileSizeMB / 1024).toFixed(0)}GB`;
+    }
+    return `${maxFileSizeMB}MB`;
+  };
+
+  const getMaxFileSizeLabel = () => {
+    if (isFileSizeUnlimited) {
+      return 'ไม่จำกัดขนาดไฟล์';
+    }
+    return 'ต่อไฟล์สูงสุด';
+  };
+
   useEffect(() => {
     // Check if user is logged in
     const checkAuth = async () => {
@@ -156,12 +179,12 @@ export default function Home() {
           <div className="card">
             <div className="grid md:grid-cols-3 gap-8 text-center">
               <div>
-                <div className="text-4xl font-bold gradient-text mb-2">50GB</div>
+                <div className="text-4xl font-bold gradient-text mb-2">{maxStorageGB}GB</div>
                 <div className="text-gray-400">พื้นที่ต่อผู้ใช้</div>
               </div>
               <div>
-                <div className="text-4xl font-bold gradient-text mb-2">500MB</div>
-                <div className="text-gray-400">ต่อไฟล์สูงสุด</div>
+                <div className="text-4xl font-bold gradient-text mb-2">{getMaxFileSizeDisplay()}</div>
+                <div className="text-gray-400">{getMaxFileSizeLabel()}</div>
               </div>
               <div>
                 <div className="text-4xl font-bold gradient-text mb-2">∞</div>
@@ -190,7 +213,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-gray-800">
         <div className="max-w-7xl mx-auto text-center text-gray-500">
-          <p>© 2024 CloudVault. สร้างด้วย Next.js + TypeScript</p>
+          <p>© 2026 CloudVault. </p>
         </div>
       </footer>
     </div>

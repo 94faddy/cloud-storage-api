@@ -6,8 +6,9 @@ import Link from 'next/link';
 import {
   Cloud, Download, Folder, File as FileIcon, Image, Video, Music,
   FileText, Archive, Code, ChevronRight, Eye, X, ExternalLink, 
-  AlertCircle, Loader2, Calendar, HardDrive, FileType
+  AlertCircle, Loader2, Calendar, HardDrive, FileType, FolderDown
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 interface SharedFile {
   id: number;
@@ -47,6 +48,7 @@ export default function SharePage() {
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<SharedFile | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
+  const [downloadingFolder, setDownloadingFolder] = useState(false);
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -133,12 +135,10 @@ export default function SharePage() {
   };
 
   const isPreviewable = (mimeType: string, fileName: string = '') => {
-    // รองรับทุกไฟล์ - return true เสมอ
     return true;
   };
 
   const canShowPreview = (mimeType: string, fileName: string = '') => {
-    // ไฟล์ที่สามารถแสดง preview ได้จริงๆ
     if (mimeType.startsWith('image/')) return true;
     if (mimeType.startsWith('video/')) return true;
     if (mimeType.startsWith('audio/')) return true;
@@ -148,7 +148,6 @@ export default function SharePage() {
     if (mimeType === 'application/xml') return true;
     if (mimeType === 'application/javascript') return true;
     
-    // ตรวจสอบจากนามสกุลไฟล์สำหรับไฟล์ text-based
     const textExtensions = [
       '.txt', '.json', '.xml', '.html', '.htm', '.css', '.js', '.ts', '.tsx', 
       '.jsx', '.vue', '.svelte', '.php', '.py', '.rb', '.java', '.c', '.cpp', 
@@ -165,7 +164,6 @@ export default function SharePage() {
     const ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
     if (textExtensions.includes(ext)) return true;
     
-    // ไฟล์ที่ไม่รู้จัก mime type แต่อาจเป็น text
     if (mimeType === 'application/octet-stream') {
       return textExtensions.includes(ext);
     }
@@ -178,6 +176,83 @@ export default function SharePage() {
       ? `/api/share/${shareId}/download?fileId=${file.id}`
       : `/api/share/${shareId}/download`;
     window.open(url, '_blank');
+  };
+
+  const handleDownloadFolder = async () => {
+    if (downloadingFolder) return;
+    
+    setDownloadingFolder(true);
+    
+    try {
+      // Show loading toast
+      Swal.fire({
+        title: 'กำลังสร้างไฟล์ ZIP...',
+        html: 'กรุณารอสักครู่ ระบบกำลังบีบอัดไฟล์',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        background: '#1e293b',
+        color: '#fff',
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      const url = subPath
+        ? `/api/share/${shareId}/download-folder?path=${encodeURIComponent(subPath)}`
+        : `/api/share/${shareId}/download-folder`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'ดาวน์โหลดไม่สำเร็จ');
+      }
+
+      // Get filename from Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'folder.zip';
+      if (contentDisposition) {
+        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (matches && matches[1]) {
+          filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
+        }
+      }
+
+      // Download the file
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      Swal.fire({
+        icon: 'success',
+        title: 'ดาวน์โหลดสำเร็จ!',
+        text: `ไฟล์ ${filename} ถูกดาวน์โหลดแล้ว`,
+        timer: 2000,
+        showConfirmButton: false,
+        background: '#1e293b',
+        color: '#fff'
+      });
+
+    } catch (error: any) {
+      console.error('Download folder error:', error);
+      Swal.fire({
+        icon: 'error',
+        title: 'ดาวน์โหลดไม่สำเร็จ',
+        text: error.message || 'เกิดข้อผิดพลาดในการดาวน์โหลด',
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#3b82f6'
+      });
+    } finally {
+      setDownloadingFolder(false);
+    }
   };
 
   const handlePreview = (file: SharedFile) => {
@@ -201,6 +276,12 @@ export default function SharePage() {
     return content?.type === 'folder'
       ? `/api/share/${shareId}/preview?fileId=${file.id}`
       : `/api/share/${shareId}/preview`;
+  };
+
+  // Calculate total size of all files
+  const getTotalSize = () => {
+    if (!content?.contents?.files) return 0;
+    return content.contents.files.reduce((sum, file) => sum + file.size, 0);
   };
 
   // Loading state
@@ -329,6 +410,9 @@ export default function SharePage() {
   // Folder view
   const folder = content.item as SharedFolder;
   const contents = content.contents;
+  const totalFiles = (contents?.files?.length || 0);
+  const totalFolders = (contents?.folders?.length || 0);
+  const totalSize = getTotalSize();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -344,26 +428,74 @@ export default function SharePage() {
         </div>
       </header>
 
-      {/* Breadcrumbs */}
+      {/* Breadcrumbs & Actions */}
       <div className="max-w-6xl mx-auto px-4 py-4">
-        <div className="flex items-center gap-2 text-sm flex-wrap glass rounded-xl px-4 py-3">
-          {breadcrumbs.map((crumb, index) => (
-            <div key={index} className="flex items-center gap-2">
-              {index > 0 && <ChevronRight className="w-4 h-4 text-gray-500" />}
-              <button
-                onClick={() => handleBreadcrumbClick(crumb.path)}
-                className={`flex items-center gap-2 px-2 py-1 rounded-lg transition-colors ${
-                  index === breadcrumbs.length - 1
-                    ? 'text-blue-400 bg-blue-500/10'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-                }`}
-              >
-                {index === 0 && <Folder className="w-4 h-4 text-yellow-400" />}
-                {crumb.name}
-              </button>
-            </div>
-          ))}
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          {/* Breadcrumbs */}
+          <div className="flex items-center gap-2 text-sm flex-wrap glass rounded-xl px-4 py-3 flex-1">
+            {breadcrumbs.map((crumb, index) => (
+              <div key={index} className="flex items-center gap-2">
+                {index > 0 && <ChevronRight className="w-4 h-4 text-gray-500" />}
+                <button
+                  onClick={() => handleBreadcrumbClick(crumb.path)}
+                  className={`flex items-center gap-2 px-2 py-1 rounded-lg transition-colors ${
+                    index === breadcrumbs.length - 1
+                      ? 'text-blue-400 bg-blue-500/10'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                  }`}
+                >
+                  {index === 0 && <Folder className="w-4 h-4 text-yellow-400" />}
+                  {crumb.name}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Download Folder Button */}
+          {(totalFiles > 0 || totalFolders > 0) && (
+            <button
+              onClick={handleDownloadFolder}
+              disabled={downloadingFolder}
+              className="btn-primary flex items-center gap-2 px-4 py-2.5 whitespace-nowrap"
+            >
+              {downloadingFolder ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating a ZIP File...
+                </>
+              ) : (
+                <>
+                  <FolderDown className="w-5 h-5" />
+                  Download ZIP Archiver
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {/* Folder Stats */}
+        {(totalFiles > 0 || totalFolders > 0) && (
+          <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+            {totalFolders > 0 && (
+              <span className="flex items-center gap-1">
+                <Folder className="w-4 h-4" />
+                {totalFolders} โฟลเดอร์
+              </span>
+            )}
+            {totalFiles > 0 && (
+              <span className="flex items-center gap-1">
+                <FileIcon className="w-4 h-4" />
+                {totalFiles} ไฟล์
+              </span>
+            )}
+            {totalSize > 0 && (
+              <span className="flex items-center gap-1">
+                <HardDrive className="w-4 h-4" />
+                {formatBytes(totalSize)}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -502,7 +634,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ตรวจสอบว่าเป็นไฟล์ text-based หรือไม่
   const isTextBasedFile = (mimeType: string, fileName: string) => {
     if (mimeType.startsWith('text/')) return true;
     if (mimeType === 'application/json') return true;
@@ -525,7 +656,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     return textExtensions.includes(ext);
   };
 
-  // ตรวจสอบว่าสามารถ preview ได้จริงหรือไม่
   const canShowPreview = (mimeType: string, fileName: string) => {
     if (mimeType.startsWith('image/')) return true;
     if (mimeType.startsWith('video/')) return true;
@@ -562,7 +692,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
 
   const maxHeight = isLarge ? 'max-h-[600px]' : 'max-h-[400px]';
 
-  // ถ้าไม่สามารถ preview ได้
   if (!canShowPreview(file.mime_type, file.original_name)) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -586,7 +715,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // Image preview
   if (file.mime_type.startsWith('image/')) {
     return (
       <div className={`flex items-center justify-center ${maxHeight} p-6 relative`}>
@@ -605,7 +733,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // Video preview
   if (file.mime_type.startsWith('video/')) {
     return (
       <div className={`flex items-center justify-center ${maxHeight} p-6`}>
@@ -621,7 +748,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // Audio preview
   if (file.mime_type.startsWith('audio/')) {
     return (
       <div className="flex items-center justify-center py-12 px-6">
@@ -641,7 +767,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // PDF preview
   if (file.mime_type === 'application/pdf') {
     return (
       <div className="p-4">
@@ -654,9 +779,7 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // Text preview (รองรับทุกไฟล์ text-based)
   if (textContent !== null) {
-    // ดึง extension สำหรับแสดง syntax highlighting hint
     const ext = file.original_name.toLowerCase().substring(file.original_name.lastIndexOf('.') + 1);
     
     return (
@@ -674,7 +797,6 @@ function FilePreview({ file, previewUrl, isLarge = false }: { file: SharedFile; 
     );
   }
 
-  // Loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">

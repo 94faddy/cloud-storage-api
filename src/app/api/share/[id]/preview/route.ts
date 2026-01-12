@@ -1,9 +1,17 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { getFileById, getSharedContent } from '@/lib/storage';
+import { getSharedContent } from '@/lib/storage';
 import { apiError } from '@/lib/utils';
 import { File, Folder } from '@/types';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const STORAGE_PATH = process.env.STORAGE_PATH || './uploads';
+
+function getStoragePath(): string {
+  return path.resolve(process.cwd(), STORAGE_PATH);
+}
 
 export async function GET(
   request: NextRequest,
@@ -52,49 +60,128 @@ export async function GET(
       return apiError('Invalid request', 400);
     }
 
-    const result = await getFileById(targetFile.id);
-    
-    if (!result) {
-      return apiError('File not found', 404);
+    // Get file path on disk
+    const filePath = path.join(getStoragePath(), targetFile.path);
+
+    if (!fs.existsSync(filePath)) {
+      return apiError('File not found on disk', 404);
     }
 
-    // Handle range requests for video/audio streaming
-    const range = request.headers.get('range');
-    const fileSize = result.buffer.length;
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const mimeType = getCorrectMimeType(targetFile.mime_type, targetFile.original_name);
+    const rangeHeader = request.headers.get('range');
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
+    // ========================================
+    // Handle Range Requests for Video/Audio (Streaming)
+    // ========================================
+    if (rangeHeader && (mimeType.startsWith('video/') || mimeType.startsWith('audio/'))) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-      const chunk = result.buffer.slice(start, end + 1);
+      const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + 1024 * 1024 - 1, fileSize - 1); // 1MB chunks
+      
+      // Validate range
+      if (start >= fileSize || end >= fileSize || start > end || isNaN(start)) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: {
+            'Content-Range': `bytes */${fileSize}`,
+          },
+        });
+      }
 
-      return new NextResponse(new Uint8Array(chunk), {
+      const chunkSize = end - start + 1;
+      
+      // Stream from disk directly
+      const fileStream = fs.createReadStream(filePath, { start, end });
+
+      // Convert Node.js stream to Web stream
+      const webStream = new ReadableStream({
+        start(controller) {
+          fileStream.on('data', (chunk) => {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            controller.enqueue(new Uint8Array(buffer));
+          });
+          fileStream.on('end', () => {
+            controller.close();
+          });
+          fileStream.on('error', (err) => {
+            console.error('Stream error:', err);
+            controller.error(err);
+          });
+        },
+        cancel() {
+          fileStream.destroy();
+        },
+      });
+
+      return new NextResponse(webStream, {
         status: 206,
         headers: {
+          'Content-Type': mimeType,
+          'Content-Length': chunkSize.toString(),
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
-          'Content-Length': chunkSize.toString(),
-          'Content-Type': result.file.mime_type,
+          'Cache-Control': 'public, max-age=3600',
         },
       });
     }
 
-    // Determine content disposition based on file type
-    const isPreviewable = isPreviewableType(result.file.mime_type, result.file.original_name);
+    // ========================================
+    // Handle Full File Request
+    // ========================================
+    const isPreviewable = isPreviewableType(mimeType, targetFile.original_name);
     const disposition = isPreviewable ? 'inline' : 'attachment';
-    const contentType = getCorrectMimeType(result.file.mime_type, result.file.original_name);
 
-    return new NextResponse(new Uint8Array(result.buffer), {
+    // For small files (< 10MB), read entire file
+    if (fileSize < 10 * 1024 * 1024) {
+      const fileBuffer = fs.readFileSync(filePath);
+      
+      return new NextResponse(new Uint8Array(fileBuffer), {
+        status: 200,
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Length': fileSize.toString(),
+          'Content-Disposition': `${disposition}; filename="${encodeURIComponent(targetFile.original_name)}"`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
+
+    // For larger files, use streaming
+    const fileStream = fs.createReadStream(filePath);
+    
+    const webStream = new ReadableStream({
+      start(controller) {
+        fileStream.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          controller.enqueue(new Uint8Array(buffer));
+        });
+        fileStream.on('end', () => {
+          controller.close();
+        });
+        fileStream.on('error', (err) => {
+          console.error('Stream error:', err);
+          controller.error(err);
+        });
+      },
+      cancel() {
+        fileStream.destroy();
+      },
+    });
+
+    return new NextResponse(webStream, {
       status: 200,
       headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `${disposition}; filename="${encodeURIComponent(result.file.original_name)}"`,
-        'Content-Length': result.file.size.toString(),
+        'Content-Type': mimeType,
+        'Content-Length': fileSize.toString(),
+        'Content-Disposition': `${disposition}; filename="${encodeURIComponent(targetFile.original_name)}"`,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'public, max-age=3600',
       },
     });
+
   } catch (error: any) {
     console.error('Preview shared content error:', error);
     return apiError(error.message || 'Preview failed', 500);
@@ -116,12 +203,10 @@ function isPreviewableType(mimeType: string, fileName: string = ''): boolean {
     'application/json', 'application/xml', 'application/javascript',
   ];
 
-  // ตรวจสอบ mime type ปกติ
   if (previewableTypes.some(type => mimeType.startsWith(type.split('/')[0] + '/') || mimeType === type)) {
     return true;
   }
 
-  // ตรวจสอบ extension สำหรับไฟล์ text-based
   if (isTextBasedExtension(fileName)) {
     return true;
   }
@@ -147,14 +232,26 @@ function isTextBasedExtension(fileName: string): boolean {
 }
 
 function getCorrectMimeType(originalMimeType: string, fileName: string): string {
-  // ถ้า mime type ไม่ใช่ octet-stream ให้ใช้ค่าเดิม
   if (originalMimeType !== 'application/octet-stream') {
     return originalMimeType;
   }
 
-  // ตรวจสอบ extension และกำหนด mime type ที่ถูกต้อง
   const ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
   const mimeMap: { [key: string]: string } = {
+    // Video
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.ogg': 'video/ogg',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+    '.mkv': 'video/x-matroska',
+    // Audio
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.flac': 'audio/flac',
+    // Code/Text
     '.js': 'text/javascript',
     '.ts': 'text/typescript',
     '.tsx': 'text/typescript',
