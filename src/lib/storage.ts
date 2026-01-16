@@ -549,6 +549,132 @@ export async function moveFile(
   return updatedFiles[0];
 }
 
+// ========================================
+// 🚀 NEW: Move Folder Function
+// ========================================
+export async function moveFolder(
+  folderId: number,
+  userId: number,
+  targetFolderId: number | null
+): Promise<Folder> {
+  // Get source folder
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+    [folderId, userId]
+  );
+
+  if (!folders[0]) {
+    throw new Error('Folder not found');
+  }
+
+  const sourceFolder = folders[0];
+
+  // Cannot move folder into itself or its children
+  if (targetFolderId !== null) {
+    if (targetFolderId === folderId) {
+      throw new Error('Cannot move folder into itself');
+    }
+
+    // Check if target is a child of source
+    const targetFolders = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+      [targetFolderId, userId]
+    );
+
+    if (!targetFolders[0]) {
+      throw new Error('Target folder not found');
+    }
+
+    const targetFolder = targetFolders[0];
+    
+    // Check if target path starts with source path (meaning target is inside source)
+    if (targetFolder.path.startsWith(sourceFolder.path + '/')) {
+      throw new Error('Cannot move folder into its own subfolder');
+    }
+  }
+
+  // Calculate new path
+  let newPath = sourceFolder.name;
+  if (targetFolderId !== null) {
+    const targetFolders = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ?',
+      [targetFolderId]
+    );
+    if (targetFolders[0]) {
+      newPath = `${targetFolders[0].path}/${sourceFolder.name}`;
+    }
+  }
+
+  // Check if folder with same name already exists in target
+  const existing = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND path = ? AND id != ?',
+    [userId, newPath, folderId]
+  );
+
+  if (existing[0]) {
+    throw new Error('A folder with the same name already exists in the target location');
+  }
+
+  const oldPath = sourceFolder.path;
+
+  // Get all child folders before updating
+  const childFolders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND path LIKE ?',
+    [userId, `${oldPath}/%`]
+  );
+
+  // Update the folder's parent and path
+  await query(
+    'UPDATE folders SET parent_id = ?, path = ? WHERE id = ?',
+    [targetFolderId, newPath, folderId]
+  );
+
+  // Update all child folders' paths
+  for (const child of childFolders) {
+    const childNewPath = child.path.replace(oldPath, newPath);
+    await query(
+      'UPDATE folders SET path = ? WHERE id = ?',
+      [childNewPath, child.id]
+    );
+  }
+
+  // Move physical directory
+  const userPath = getUserStoragePath(userId);
+  const oldPhysicalPath = path.join(userPath, oldPath);
+  const newPhysicalPath = path.join(userPath, newPath);
+
+  try {
+    // Ensure parent directory exists
+    await fs.mkdir(path.dirname(newPhysicalPath), { recursive: true });
+    // Rename/move the directory
+    await fs.rename(oldPhysicalPath, newPhysicalPath);
+  } catch (error) {
+    console.error('Error moving physical directory:', error);
+    // Rollback database changes if physical move fails
+    await query(
+      'UPDATE folders SET parent_id = ?, path = ? WHERE id = ?',
+      [sourceFolder.parent_id, oldPath, folderId]
+    );
+    for (const child of childFolders) {
+      await query(
+        'UPDATE folders SET path = ? WHERE id = ?',
+        [child.path, child.id]
+      );
+    }
+    throw new Error('Failed to move folder on disk');
+  }
+
+  // Update file paths in database
+  await query(
+    `UPDATE files SET path = REPLACE(path, ?, ?) 
+     WHERE user_id = ? AND path LIKE ?`,
+    [`user_${userId}/${oldPath}`, `user_${userId}/${newPath}`, userId, `user_${userId}/${oldPath}%`]
+  );
+
+  const updatedFolders = await query<Folder[]>('SELECT * FROM folders WHERE id = ?', [folderId]);
+  return updatedFolders[0];
+}
+
 export function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return '0 Bytes';
 

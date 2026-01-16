@@ -5,7 +5,8 @@ import {
   Upload, FolderPlus, Folder, File as FileIcon, Image, Video, Music,
   FileText, Archive, Code, MoreVertical, Download, Trash2, Share2,
   ChevronRight, Home, RefreshCw, Grid, List, Search, X, Eye, Copy,
-  CheckCircle, AlertCircle, Loader2, Link as LinkIcon, ExternalLink
+  CheckCircle, AlertCircle, Loader2, Link as LinkIcon, ExternalLink,
+  Move, FolderInput, ArrowRight
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -31,6 +32,7 @@ interface FolderItem {
   id: number;
   name: string;
   path: string;
+  parent_id: number | null;
   is_public: boolean;
   public_url: string | null;
   created_at: string;
@@ -57,6 +59,7 @@ interface UploadFile {
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [allFolders, setAllFolders] = useState<FolderItem[]>([]); // For move modal
   const [currentFolder, setCurrentFolder] = useState<number | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: 'หน้าแรก' }]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +73,12 @@ export default function FilesPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [totalProgress, setTotalProgress] = useState(0);
   const [uploadComplete, setUploadComplete] = useState(false);
+
+  // Move Modal State
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveItem, setMoveItem] = useState<{ type: 'file' | 'folder'; item: FileItem | FolderItem } | null>(null);
+  const [selectedTargetFolder, setSelectedTargetFolder] = useState<number | null>(null);
+  const [moveLoading, setMoveLoading] = useState(false);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'file' | 'folder'; item: FileItem | FolderItem } | null>(null);
@@ -94,6 +103,37 @@ export default function FilesPage() {
       console.error('Error fetching files:', error);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Fetch all folders for move modal
+  const fetchAllFolders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/folders/list?all=true');
+      const data = await res.json();
+      if (data.success) {
+        // Recursively fetch all folders
+        const allFoldersData: FolderItem[] = [];
+        
+        const fetchFolderRecursive = async (parentId: number | null, depth: number = 0) => {
+          const url = parentId !== null 
+            ? `/api/files/list?folderId=${parentId}`
+            : '/api/files/list';
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.success && data.data.folders) {
+            for (const folder of data.data.folders) {
+              allFoldersData.push({ ...folder, depth });
+              await fetchFolderRecursive(folder.id, depth + 1);
+            }
+          }
+        };
+        
+        await fetchFolderRecursive(null);
+        setAllFolders(allFoldersData);
+      }
+    } catch (error) {
+      console.error('Error fetching all folders:', error);
     }
   }, []);
 
@@ -395,7 +435,6 @@ export default function FilesPage() {
   };
 
   const getTotalUploadStats = () => {
-    // คำนวณจากทุกไฟล์ ไม่ใช่แค่ uploading
     const allFiles = uploadFiles.filter(f => f.status !== 'error');
     const totalBytes = allFiles.reduce((sum, f) => sum + f.size, 0);
     const uploadedBytes = allFiles.reduce((sum, f) => sum + f.uploadedBytes, 0);
@@ -467,6 +506,84 @@ export default function FilesPage() {
         console.error('Error creating folder:', error);
       }
     }
+  };
+
+  // ========================================
+  // 🚀 MOVE FILE / FOLDER FUNCTIONS
+  // ========================================
+  
+  const openMoveModal = async (type: 'file' | 'folder', item: FileItem | FolderItem) => {
+    setMoveItem({ type, item });
+    setSelectedTargetFolder(null);
+    await fetchAllFolders();
+    setShowMoveModal(true);
+  };
+
+  const handleMove = async () => {
+    if (!moveItem) return;
+    
+    setMoveLoading(true);
+    
+    try {
+      const endpoint = moveItem.type === 'file' 
+        ? '/api/files/move'
+        : '/api/folders/move';
+      
+      const body = moveItem.type === 'file'
+        ? { fileId: moveItem.item.id, targetFolderId: selectedTargetFolder }
+        : { folderId: moveItem.item.id, targetFolderId: selectedTargetFolder };
+      
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        Swal.fire({
+          icon: 'success',
+          title: 'ย้ายสำเร็จ!',
+          text: `${moveItem.type === 'file' ? 'ไฟล์' : 'โฟลเดอร์'}ถูกย้ายเรียบร้อยแล้ว`,
+          timer: 1500,
+          showConfirmButton: false,
+          background: '#1e293b',
+          color: '#fff',
+        });
+        setShowMoveModal(false);
+        setMoveItem(null);
+        fetchFiles(currentFolder);
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      Swal.fire({
+        icon: 'error',
+        title: 'ย้ายไม่สำเร็จ',
+        text: error.message,
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#6366f1',
+      });
+    } finally {
+      setMoveLoading(false);
+    }
+  };
+
+  const getAvailableFolders = () => {
+    if (!moveItem) return allFolders;
+    
+    // If moving a folder, exclude itself and its children
+    if (moveItem.type === 'folder') {
+      const folderItem = moveItem.item as FolderItem;
+      return allFolders.filter(f => 
+        f.id !== folderItem.id && 
+        !f.path.startsWith(folderItem.path + '/')
+      );
+    }
+    
+    return allFolders;
   };
 
   const handleDeleteFile = async (fileId: number, fileName: string) => {
@@ -1013,6 +1130,13 @@ export default function FilesPage() {
                   <td className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
+                        onClick={(e) => { e.stopPropagation(); openMoveModal('folder', folder); }}
+                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                        title="ย้าย"
+                      >
+                        <Move className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); handleShareFolder(folder.id, folder.is_public); }}
                         className={`p-2 hover:bg-gray-700 rounded ${folder.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
                         title={folder.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
@@ -1079,6 +1203,13 @@ export default function FilesPage() {
                         <Download className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={() => openMoveModal('file', file)}
+                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                        title="ย้าย"
+                      >
+                        <Move className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleShareFile(file.id, file.is_public)}
                         className={`p-2 hover:bg-gray-700 rounded ${file.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
                         title={file.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
@@ -1126,6 +1257,12 @@ export default function FilesPage() {
                 <Download className="w-4 h-4" /> ดาวน์โหลด
               </button>
               <button
+                onClick={() => { openMoveModal('file', contextMenu.item as FileItem); setContextMenu(null); }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+              >
+                <Move className="w-4 h-4" /> ย้าย
+              </button>
+              <button
                 onClick={() => { handleShareFile((contextMenu.item as FileItem).id, (contextMenu.item as FileItem).is_public); setContextMenu(null); }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
@@ -1165,6 +1302,12 @@ export default function FilesPage() {
                 <Folder className="w-4 h-4" /> เปิดโฟลเดอร์
               </button>
               <button
+                onClick={() => { openMoveModal('folder', contextMenu.item as FolderItem); setContextMenu(null); }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+              >
+                <Move className="w-4 h-4" /> ย้าย
+              </button>
+              <button
                 onClick={() => { handleShareFolder((contextMenu.item as FolderItem).id, (contextMenu.item as FolderItem).is_public); setContextMenu(null); }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
@@ -1196,6 +1339,98 @@ export default function FilesPage() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Move Modal */}
+      {showMoveModal && moveItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl w-full max-w-md">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Move className="w-6 h-6 text-blue-400" />
+                ย้าย{moveItem.type === 'file' ? 'ไฟล์' : 'โฟลเดอร์'}
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">
+                {moveItem.type === 'file' 
+                  ? (moveItem.item as FileItem).original_name 
+                  : (moveItem.item as FolderItem).name
+                }
+              </p>
+            </div>
+
+            {/* Folder Selection */}
+            <div className="p-6 max-h-80 overflow-y-auto">
+              <p className="text-sm text-gray-400 mb-3">เลือกโฟลเดอร์ปลายทาง:</p>
+              
+              {/* Root option */}
+              <button
+                onClick={() => setSelectedTargetFolder(null)}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                  selectedTargetFolder === null 
+                    ? 'bg-blue-500/20 border border-blue-500/50' 
+                    : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                }`}
+              >
+                <Home className="w-5 h-5 text-blue-400" />
+                <span>หน้าแรก (Root)</span>
+                {selectedTargetFolder === null && (
+                  <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
+                )}
+              </button>
+
+              {/* Folder list */}
+              {getAvailableFolders().map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => setSelectedTargetFolder(folder.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                    selectedTargetFolder === folder.id 
+                      ? 'bg-blue-500/20 border border-blue-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                  }`}
+                  style={{ paddingLeft: `${((folder as any).depth || 0) * 16 + 12}px` }}
+                >
+                  <Folder className="w-5 h-5 text-yellow-400" />
+                  <span className="truncate">{folder.name}</span>
+                  <span className="text-xs text-gray-500 truncate ml-auto mr-2">
+                    {folder.path}
+                  </span>
+                  {selectedTargetFolder === folder.id && (
+                    <CheckCircle className="w-4 h-4 text-blue-400" />
+                  )}
+                </button>
+              ))}
+
+              {getAvailableFolders().length === 0 && (
+                <p className="text-gray-500 text-center py-4">ไม่มีโฟลเดอร์อื่น</p>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-gray-700/50 flex gap-3">
+              <button
+                onClick={() => { setShowMoveModal(false); setMoveItem(null); }}
+                className="btn-secondary flex-1"
+                disabled={moveLoading}
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleMove}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+                disabled={moveLoading}
+              >
+                {moveLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-4 h-4" />
+                )}
+                ย้าย
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
