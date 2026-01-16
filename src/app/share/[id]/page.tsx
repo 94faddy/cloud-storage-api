@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -36,6 +36,166 @@ interface SharedContent {
   };
 }
 
+// ============================================
+// 🎯 ZIP Download Progress Modal Component
+// ============================================
+function ZipProgressModal({
+  isOpen,
+  progress,
+  downloadedBytes,
+  estimatedTotalBytes,
+  status,
+  onCancel
+}: {
+  isOpen: boolean;
+  progress: number;
+  downloadedBytes: number;
+  estimatedTotalBytes: number;
+  status: 'preparing' | 'downloading' | 'completed' | 'error';
+  onCancel: () => void;
+}) {
+  if (!isOpen) return null;
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getStatusText = () => {
+    switch (status) {
+      case 'preparing':
+        return 'กำลังเตรียมไฟล์...';
+      case 'downloading':
+        return 'กำลังดาวน์โหลด ZIP...';
+      case 'completed':
+        return 'ดาวน์โหลดเสร็จสิ้น!';
+      case 'error':
+        return 'เกิดข้อผิดพลาด';
+      default:
+        return 'กำลังประมวลผล...';
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'completed':
+        return 'text-green-400';
+      case 'error':
+        return 'text-red-400';
+      default:
+        return 'text-blue-400';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+      <div className="glass rounded-3xl p-8 max-w-md w-full border border-gray-700/50">
+        {/* Icon */}
+        <div className="flex justify-center mb-6">
+          <div className={`w-20 h-20 rounded-2xl flex items-center justify-center ${
+            status === 'completed' 
+              ? 'bg-gradient-to-br from-green-500/20 to-green-600/10' 
+              : status === 'error'
+              ? 'bg-gradient-to-br from-red-500/20 to-red-600/10'
+              : 'bg-gradient-to-br from-blue-500/20 to-blue-600/10'
+          }`}>
+            {status === 'completed' ? (
+              <Archive className="w-10 h-10 text-green-400" />
+            ) : status === 'error' ? (
+              <AlertCircle className="w-10 h-10 text-red-400" />
+            ) : (
+              <FolderDown className="w-10 h-10 text-blue-400 animate-pulse" />
+            )}
+          </div>
+        </div>
+
+        {/* Status Text */}
+        <h3 className={`text-xl font-bold text-center mb-2 ${getStatusColor()}`}>
+          {getStatusText()}
+        </h3>
+
+        {/* Progress Info */}
+        {status !== 'completed' && status !== 'error' && (
+          <div className="space-y-4">
+            {/* Progress Bar */}
+            <div className="relative">
+              <div className="h-4 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-300 relative"
+                  style={{ width: `${Math.min(progress, 100)}%` }}
+                >
+                  {/* Animated shine effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
+                </div>
+              </div>
+              {/* Percentage on top of bar */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-white drop-shadow-lg">
+                  {progress.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Size Info */}
+            <div className="flex justify-between text-sm text-gray-400">
+              <span>{formatBytes(downloadedBytes)}</span>
+              <span>
+                {estimatedTotalBytes > 0 
+                  ? `~${formatBytes(estimatedTotalBytes)}` 
+                  : 'กำลังคำนวณ...'}
+              </span>
+            </div>
+
+            {/* Additional Info */}
+            <div className="text-center text-xs text-gray-500">
+              {status === 'preparing' && (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  กำลังบีบอัดไฟล์เป็น ZIP...
+                </span>
+              )}
+              {status === 'downloading' && (
+                <span>กำลังดาวน์โหลดไฟล์ ZIP</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Cancel Button */}
+        {status !== 'completed' && status !== 'error' && (
+          <button
+            onClick={onCancel}
+            className="w-full mt-6 py-3 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+          >
+            ยกเลิก
+          </button>
+        )}
+
+        {/* Close on Complete */}
+        {status === 'completed' && (
+          <p className="text-center text-sm text-gray-400 mt-4">
+            ไฟล์จะถูกบันทึกลงเครื่องอัตโนมัติ
+          </p>
+        )}
+      </div>
+
+      {/* CSS for shimmer animation */}
+      <style jsx>{`
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .animate-shimmer {
+          animation: shimmer 2s infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function SharePage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -48,7 +208,15 @@ export default function SharePage() {
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<SharedFile | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
+  
+  // ZIP Download Progress State
   const [downloadingFolder, setDownloadingFolder] = useState(false);
+  const [zipProgress, setZipProgress] = useState(0);
+  const [downloadedBytes, setDownloadedBytes] = useState(0);
+  const [estimatedTotalBytes, setEstimatedTotalBytes] = useState(0);
+  const [downloadStatus, setDownloadStatus] = useState<'preparing' | 'downloading' | 'completed' | 'error'>('preparing');
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -178,36 +346,46 @@ export default function SharePage() {
     window.open(url, '_blank');
   };
 
+  // ============================================
+  // 🎯 Enhanced ZIP Download with Progress Tracking
+  // ============================================
   const handleDownloadFolder = async () => {
     if (downloadingFolder) return;
     
+    // Reset state
     setDownloadingFolder(true);
+    setShowProgressModal(true);
+    setZipProgress(0);
+    setDownloadedBytes(0);
+    setDownloadStatus('preparing');
+    
+    // Calculate estimated total size (ZIP is usually smaller due to compression)
+    const totalFilesSize = getTotalSize();
+    // Estimate ZIP size (roughly 70-90% of original size for most files)
+    const estimatedZipSize = Math.round(totalFilesSize * 0.8);
+    setEstimatedTotalBytes(estimatedZipSize);
+
+    // Create abort controller for cancellation
+    abortControllerRef.current = new AbortController();
     
     try {
-      // Show loading toast
-      Swal.fire({
-        title: 'กำลังสร้างไฟล์ ZIP...',
-        html: 'กรุณารอสักครู่ ระบบกำลังบีบอัดไฟล์',
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        showConfirmButton: false,
-        background: '#1e293b',
-        color: '#fff',
-        didOpen: () => {
-          Swal.showLoading();
-        }
-      });
-
       const url = subPath
         ? `/api/share/${shareId}/download-folder?path=${encodeURIComponent(subPath)}`
         : `/api/share/${shareId}/download-folder`;
       
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: abortControllerRef.current.signal
+      });
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'ดาวน์โหลดไม่สำเร็จ');
       }
+
+      // Get Content-Length if available
+      const contentLength = response.headers.get('Content-Length');
+      const totalBytes = contentLength ? parseInt(contentLength, 10) : estimatedZipSize;
+      setEstimatedTotalBytes(totalBytes);
 
       // Get filename from Content-Disposition header
       const contentDisposition = response.headers.get('Content-Disposition');
@@ -219,8 +397,42 @@ export default function SharePage() {
         }
       }
 
+      // Start reading the stream
+      setDownloadStatus('downloading');
+      
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Unable to read response body');
+      }
+
+      const chunks: ArrayBuffer[] = [];
+      let receivedBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        // Convert Uint8Array to ArrayBuffer
+        chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+        receivedBytes += value.length;
+        setDownloadedBytes(receivedBytes);
+        
+        // Calculate progress
+        const progress = totalBytes > 0 
+          ? (receivedBytes / totalBytes) * 100 
+          : Math.min((receivedBytes / estimatedZipSize) * 100, 99);
+        setZipProgress(progress);
+      }
+
+      // Combine chunks into a single blob
+      const blob = new Blob(chunks, { type: 'application/zip' });
+      
+      // Set completed status
+      setZipProgress(100);
+      setDownloadStatus('completed');
+
       // Download the file
-      const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -230,29 +442,54 @@ export default function SharePage() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
 
-      Swal.fire({
-        icon: 'success',
-        title: 'ดาวน์โหลดสำเร็จ!',
-        text: `ไฟล์ ${filename} ถูกดาวน์โหลดแล้ว`,
-        timer: 2000,
-        showConfirmButton: false,
-        background: '#1e293b',
-        color: '#fff'
-      });
+      // Auto close modal after a delay
+      setTimeout(() => {
+        setShowProgressModal(false);
+        setDownloadingFolder(false);
+      }, 2000);
 
     } catch (error: any) {
-      console.error('Download folder error:', error);
-      Swal.fire({
-        icon: 'error',
-        title: 'ดาวน์โหลดไม่สำเร็จ',
-        text: error.message || 'เกิดข้อผิดพลาดในการดาวน์โหลด',
-        background: '#1e293b',
-        color: '#fff',
-        confirmButtonColor: '#3b82f6'
-      });
+      if (error.name === 'AbortError') {
+        console.log('Download cancelled by user');
+        Swal.fire({
+          icon: 'info',
+          title: 'ยกเลิกการดาวน์โหลด',
+          text: 'การดาวน์โหลดถูกยกเลิกแล้ว',
+          background: '#1e293b',
+          color: '#fff',
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } else {
+        console.error('Download folder error:', error);
+        setDownloadStatus('error');
+        
+        setTimeout(() => {
+          setShowProgressModal(false);
+          Swal.fire({
+            icon: 'error',
+            title: 'ดาวน์โหลดไม่สำเร็จ',
+            text: error.message || 'เกิดข้อผิดพลาดในการดาวน์โหลด',
+            background: '#1e293b',
+            color: '#fff',
+            confirmButtonColor: '#3b82f6'
+          });
+        }, 1500);
+      }
     } finally {
-      setDownloadingFolder(false);
+      if (downloadStatus !== 'completed') {
+        setDownloadingFolder(false);
+      }
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancelDownload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setShowProgressModal(false);
+    setDownloadingFolder(false);
   };
 
   const handlePreview = (file: SharedFile) => {
@@ -461,12 +698,12 @@ export default function SharePage() {
               {downloadingFolder ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating a ZIP File...
+                  กำลังดาวน์โหลด...
                 </>
               ) : (
                 <>
                   <FolderDown className="w-5 h-5" />
-                  Download ZIP Archiver
+                  ดาวน์โหลด ZIP ({formatBytes(totalSize)})
                 </>
               )}
             </button>
@@ -623,6 +860,16 @@ export default function SharePage() {
           onDownload={() => handleDownload(previewFile)}
         />
       )}
+
+      {/* ZIP Download Progress Modal */}
+      <ZipProgressModal
+        isOpen={showProgressModal}
+        progress={zipProgress}
+        downloadedBytes={downloadedBytes}
+        estimatedTotalBytes={estimatedTotalBytes}
+        status={downloadStatus}
+        onCancel={handleCancelDownload}
+      />
     </div>
   );
 }
