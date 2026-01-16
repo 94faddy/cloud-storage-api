@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { getUserFromRequest, logActivity } from '@/lib/auth';
-import { moveFolder } from '@/lib/storage';
+import { deleteFolder } from '@/lib/storage';
 import { query } from '@/lib/db';
 import { apiResponse, apiError, getClientIp, getUserAgent } from '@/lib/utils';
 import { Folder } from '@/types';
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { folderIds, targetFolderId } = body;
+    const { folderIds } = body;
 
     if (!folderIds || !Array.isArray(folderIds) || folderIds.length === 0) {
       return apiError('Folder IDs are required', 400);
@@ -28,24 +28,7 @@ export async function POST(request: NextRequest) {
       return apiError('No valid folder IDs provided', 400);
     }
 
-    const parsedTargetId = targetFolderId !== null && targetFolderId !== undefined 
-      ? parseInt(targetFolderId) 
-      : null;
-
-    // Verify target folder exists if provided
-    let targetFolder: Folder | null = null;
-    if (parsedTargetId !== null) {
-      const targetFolders = await query<Folder[]>(
-        'SELECT * FROM folders WHERE id = ? AND user_id = ?',
-        [parsedTargetId, user.id]
-      );
-      if (!targetFolders[0]) {
-        return apiError('Target folder not found', 404);
-      }
-      targetFolder = targetFolders[0];
-    }
-
-    // Get all folders to move (verify ownership)
+    // Get all folders to delete (verify ownership)
     const placeholders = validIds.map(() => '?').join(',');
     const folders = await query<Folder[]>(
       `SELECT * FROM folders WHERE id IN (${placeholders}) AND user_id = ?`,
@@ -56,44 +39,42 @@ export async function POST(request: NextRequest) {
       return apiError('No folders found', 404);
     }
 
-    // Check if trying to move folders into themselves or their children
-    if (targetFolder) {
-      for (const folder of folders) {
-        if (folder.id === parsedTargetId) {
-          return apiError(`Cannot move folder "${folder.name}" into itself`, 400);
-        }
-        if (targetFolder.path.startsWith(folder.path + '/')) {
-          return apiError(`Cannot move folder "${folder.name}" into its own subfolder`, 400);
+    // Sort folders by path length (deepest first for deletion to avoid FK issues)
+    // Add null check for path
+    const sortedFolders = [...folders].sort((a, b) => (b.path?.length || 0) - (a.path?.length || 0));
+
+    const results = {
+      deleted: [] as number[],
+      failed: [] as { id: number; error: string }[],
+    };
+
+    // Track folders that will be deleted as children of other folders
+    const childFolderIds = new Set<number>();
+    
+    // Find child folders that will be auto-deleted
+    // Add null check for path
+    for (const folder of folders) {
+      for (const otherFolder of folders) {
+        if (otherFolder.id !== folder.id && 
+            folder.path && 
+            otherFolder.path && 
+            otherFolder.path.startsWith(folder.path + '/')) {
+          childFolderIds.add(otherFolder.id);
         }
       }
     }
 
-    // Sort folders by path length (shallowest first for moving)
-    const sortedFolders = [...folders].sort((a, b) => a.path.length - b.path.length);
-
-    const results = {
-      moved: [] as number[],
-      failed: [] as { id: number; error: string }[],
-    };
-
-    // Move each folder
+    // Delete each folder (skip child folders as they'll be deleted with parent)
     for (const folder of sortedFolders) {
-      // Skip if this folder is a child of another folder we're moving
-      const isChildOfMovingFolder = sortedFolders.some(f => 
-        f.id !== folder.id && 
-        folder.path.startsWith(f.path + '/') &&
-        !results.failed.some(fail => fail.id === f.id)
-      );
-
-      if (isChildOfMovingFolder) {
-        // This folder will be moved automatically with its parent
-        results.moved.push(folder.id);
+      if (childFolderIds.has(folder.id)) {
+        // This folder will be deleted automatically with its parent
+        results.deleted.push(folder.id);
         continue;
       }
 
       try {
-        await moveFolder(folder.id, user.id, parsedTargetId);
-        results.moved.push(folder.id);
+        await deleteFolder(folder.id, user.id);
+        results.deleted.push(folder.id);
       } catch (error: any) {
         results.failed.push({ id: folder.id, error: error.message });
       }
@@ -102,12 +83,11 @@ export async function POST(request: NextRequest) {
     // Log activity
     await logActivity(
       user.id,
-      'bulk_move_folders',
+      'bulk_delete_folders',
       { 
-        moved: results.moved.length, 
+        deleted: results.deleted.length, 
         failed: results.failed.length,
-        targetFolderId: parsedTargetId,
-        folderNames: folders.filter(f => results.moved.includes(f.id)).map(f => f.name)
+        folderNames: folders.filter(f => results.deleted.includes(f.id)).map(f => f.name)
       },
       getClientIp(request),
       getUserAgent(request)
@@ -116,10 +96,10 @@ export async function POST(request: NextRequest) {
     return apiResponse(
       results,
       200,
-      `ย้ายโฟลเดอร์สำเร็จ ${results.moved.length} โฟลเดอร์${results.failed.length > 0 ? `, ล้มเหลว ${results.failed.length} โฟลเดอร์` : ''}`
+      `ลบโฟลเดอร์สำเร็จ ${results.deleted.length} โฟลเดอร์${results.failed.length > 0 ? `, ล้มเหลว ${results.failed.length} โฟลเดอร์` : ''}`
     );
   } catch (error: any) {
-    console.error('Bulk move folders error:', error);
-    return apiError(error.message || 'Bulk move failed', 500);
+    console.error('Bulk delete folders error:', error);
+    return apiError(error.message || 'Bulk delete failed', 500);
   }
 }

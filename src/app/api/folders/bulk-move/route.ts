@@ -57,19 +57,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if trying to move folders into themselves or their children
-    if (targetFolder) {
+    if (targetFolder && targetFolder.path) {
       for (const folder of folders) {
         if (folder.id === parsedTargetId) {
           return apiError(`Cannot move folder "${folder.name}" into itself`, 400);
         }
-        if (targetFolder.path.startsWith(folder.path + '/')) {
+        // Add null check for folder.path
+        if (folder.path && targetFolder.path.startsWith(folder.path + '/')) {
           return apiError(`Cannot move folder "${folder.name}" into its own subfolder`, 400);
         }
       }
     }
 
     // Sort folders by path length (shallowest first for moving)
-    const sortedFolders = [...folders].sort((a, b) => a.path.length - b.path.length);
+    // Add null check for path
+    const sortedFolders = [...folders].sort((a, b) => (a.path?.length || 0) - (b.path?.length || 0));
 
     const results = {
       moved: [] as number[],
@@ -79,8 +81,11 @@ export async function POST(request: NextRequest) {
     // Move each folder
     for (const folder of sortedFolders) {
       // Skip if this folder is a child of another folder we're moving
+      // Add null check for path
       const isChildOfMovingFolder = sortedFolders.some(f => 
         f.id !== folder.id && 
+        f.path && 
+        folder.path && 
         folder.path.startsWith(f.path + '/') &&
         !results.failed.some(fail => fail.id === f.id)
       );

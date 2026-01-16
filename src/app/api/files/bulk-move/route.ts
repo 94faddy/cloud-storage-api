@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { getUserFromRequest, logActivity } from '@/lib/auth';
-import { moveFolder } from '@/lib/storage';
+import { moveFile } from '@/lib/storage';
 import { query } from '@/lib/db';
 import { apiResponse, apiError, getClientIp, getUserAgent } from '@/lib/utils';
-import { Folder } from '@/types';
+import { File, Folder } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,17 +15,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { folderIds, targetFolderId } = body;
+    const { fileIds, targetFolderId } = body;
 
-    if (!folderIds || !Array.isArray(folderIds) || folderIds.length === 0) {
-      return apiError('Folder IDs are required', 400);
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      return apiError('File IDs are required', 400);
     }
 
     // Validate all IDs are numbers
-    const validIds = folderIds.filter((id: any) => !isNaN(parseInt(id))).map((id: any) => parseInt(id));
+    const validIds = fileIds.filter((id: any) => !isNaN(parseInt(id))).map((id: any) => parseInt(id));
     
     if (validIds.length === 0) {
-      return apiError('No valid folder IDs provided', 400);
+      return apiError('No valid file IDs provided', 400);
     }
 
     const parsedTargetId = targetFolderId !== null && targetFolderId !== undefined 
@@ -33,7 +33,6 @@ export async function POST(request: NextRequest) {
       : null;
 
     // Verify target folder exists if provided
-    let targetFolder: Folder | null = null;
     if (parsedTargetId !== null) {
       const targetFolders = await query<Folder[]>(
         'SELECT * FROM folders WHERE id = ? AND user_id = ?',
@@ -42,72 +41,43 @@ export async function POST(request: NextRequest) {
       if (!targetFolders[0]) {
         return apiError('Target folder not found', 404);
       }
-      targetFolder = targetFolders[0];
     }
 
-    // Get all folders to move (verify ownership)
+    // Get all files to move (verify ownership)
     const placeholders = validIds.map(() => '?').join(',');
-    const folders = await query<Folder[]>(
-      `SELECT * FROM folders WHERE id IN (${placeholders}) AND user_id = ?`,
+    const files = await query<File[]>(
+      `SELECT * FROM files WHERE id IN (${placeholders}) AND user_id = ?`,
       [...validIds, user.id]
     );
 
-    if (folders.length === 0) {
-      return apiError('No folders found', 404);
+    if (files.length === 0) {
+      return apiError('No files found', 404);
     }
-
-    // Check if trying to move folders into themselves or their children
-    if (targetFolder) {
-      for (const folder of folders) {
-        if (folder.id === parsedTargetId) {
-          return apiError(`Cannot move folder "${folder.name}" into itself`, 400);
-        }
-        if (targetFolder.path.startsWith(folder.path + '/')) {
-          return apiError(`Cannot move folder "${folder.name}" into its own subfolder`, 400);
-        }
-      }
-    }
-
-    // Sort folders by path length (shallowest first for moving)
-    const sortedFolders = [...folders].sort((a, b) => a.path.length - b.path.length);
 
     const results = {
       moved: [] as number[],
       failed: [] as { id: number; error: string }[],
     };
 
-    // Move each folder
-    for (const folder of sortedFolders) {
-      // Skip if this folder is a child of another folder we're moving
-      const isChildOfMovingFolder = sortedFolders.some(f => 
-        f.id !== folder.id && 
-        folder.path.startsWith(f.path + '/') &&
-        !results.failed.some(fail => fail.id === f.id)
-      );
-
-      if (isChildOfMovingFolder) {
-        // This folder will be moved automatically with its parent
-        results.moved.push(folder.id);
-        continue;
-      }
-
+    // Move each file
+    for (const file of files) {
       try {
-        await moveFolder(folder.id, user.id, parsedTargetId);
-        results.moved.push(folder.id);
+        await moveFile(file.id, user.id, parsedTargetId);
+        results.moved.push(file.id);
       } catch (error: any) {
-        results.failed.push({ id: folder.id, error: error.message });
+        results.failed.push({ id: file.id, error: error.message });
       }
     }
 
     // Log activity
     await logActivity(
       user.id,
-      'bulk_move_folders',
+      'bulk_move_files',
       { 
         moved: results.moved.length, 
         failed: results.failed.length,
         targetFolderId: parsedTargetId,
-        folderNames: folders.filter(f => results.moved.includes(f.id)).map(f => f.name)
+        fileNames: files.filter(f => results.moved.includes(f.id)).map(f => f.original_name)
       },
       getClientIp(request),
       getUserAgent(request)
@@ -116,10 +86,10 @@ export async function POST(request: NextRequest) {
     return apiResponse(
       results,
       200,
-      `ย้ายโฟลเดอร์สำเร็จ ${results.moved.length} โฟลเดอร์${results.failed.length > 0 ? `, ล้มเหลว ${results.failed.length} โฟลเดอร์` : ''}`
+      `ย้ายไฟล์สำเร็จ ${results.moved.length} ไฟล์${results.failed.length > 0 ? `, ล้มเหลว ${results.failed.length} ไฟล์` : ''}`
     );
   } catch (error: any) {
-    console.error('Bulk move folders error:', error);
+    console.error('Bulk move files error:', error);
     return apiError(error.message || 'Bulk move failed', 500);
   }
 }

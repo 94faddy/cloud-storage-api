@@ -443,6 +443,9 @@ export async function createFolder(
   return folders[0];
 }
 
+// ========================================
+// 🚀 FIXED: Delete Folder Function
+// ========================================
 export async function deleteFolder(folderId: number, userId: number): Promise<void> {
   const folders = await query<Folder[]>(
     'SELECT * FROM folders WHERE id = ? AND user_id = ?',
@@ -454,6 +457,14 @@ export async function deleteFolder(folderId: number, userId: number): Promise<vo
   }
 
   const folder = folders[0];
+
+  // Ensure folder has a valid path
+  if (!folder.path) {
+    // If path is null, just delete the folder and its direct files
+    await query('DELETE FROM files WHERE user_id = ? AND folder_id = ?', [userId, folderId]);
+    await query('DELETE FROM folders WHERE id = ?', [folderId]);
+    return;
+  }
 
   // Get all files in this folder and subfolders
   const files = await query<File[]>(
@@ -515,6 +526,10 @@ export async function listFiles(
   return { files, folders };
 }
 
+// ========================================
+// 🚀 FIXED: Move File Function
+// ย้ายไฟล์จริงบน disk และอัพเดท path
+// ========================================
 export async function moveFile(
   fileId: number,
   userId: number,
@@ -529,7 +544,12 @@ export async function moveFile(
     throw new Error('File not found');
   }
 
-  // Verify target folder exists if provided
+  const file = files[0];
+
+  // Get target folder path
+  let targetPath = `user_${userId}`;
+  let targetPhysicalDir = getUserStoragePath(userId);
+
   if (targetFolderId !== null) {
     const targetFolders = await query<Folder[]>(
       'SELECT * FROM folders WHERE id = ? AND user_id = ?',
@@ -538,11 +558,45 @@ export async function moveFile(
     if (!targetFolders[0]) {
       throw new Error('Target folder not found');
     }
+    const targetFolder = targetFolders[0];
+    if (targetFolder.path) {
+      targetPath = `user_${userId}/${targetFolder.path}`;
+      targetPhysicalDir = path.join(getUserStoragePath(userId), targetFolder.path);
+    }
   }
 
+  // Calculate new path
+  const fileName = file.name; // UUID filename like "fb3fd6f9-03d2-440f-a526-c1009a0626ad.jpg"
+  const newDbPath = `${targetPath}/${fileName}`;
+  const oldPhysicalPath = path.join(getStoragePath(), file.path);
+  const newPhysicalPath = path.join(targetPhysicalDir, fileName);
+
+  // Skip if file is already in the target location
+  if (file.path === newDbPath) {
+    return file;
+  }
+
+  // Ensure target directory exists
+  await fs.mkdir(targetPhysicalDir, { recursive: true });
+
+  // Move physical file
+  try {
+    await fs.rename(oldPhysicalPath, newPhysicalPath);
+  } catch (error: any) {
+    // If rename fails (cross-device), try copy + delete
+    if (error.code === 'EXDEV') {
+      await fs.copyFile(oldPhysicalPath, newPhysicalPath);
+      await fs.unlink(oldPhysicalPath);
+    } else {
+      console.error('Error moving physical file:', error);
+      throw new Error('Failed to move file on disk');
+    }
+  }
+
+  // Update database
   await query(
-    'UPDATE files SET folder_id = ? WHERE id = ?',
-    [targetFolderId, fileId]
+    'UPDATE files SET folder_id = ?, path = ? WHERE id = ?',
+    [targetFolderId, newDbPath, fileId]
   );
 
   const updatedFiles = await query<File[]>('SELECT * FROM files WHERE id = ?', [fileId]);
@@ -550,7 +604,7 @@ export async function moveFile(
 }
 
 // ========================================
-// 🚀 NEW: Move Folder Function
+// 🚀 FIXED: Move Folder Function
 // ========================================
 export async function moveFolder(
   folderId: number,
@@ -568,6 +622,11 @@ export async function moveFolder(
   }
 
   const sourceFolder = folders[0];
+
+  // Ensure source folder has a path
+  if (!sourceFolder.path) {
+    throw new Error('Source folder has invalid path');
+  }
 
   // Cannot move folder into itself or its children
   if (targetFolderId !== null) {
@@ -588,7 +647,7 @@ export async function moveFolder(
     const targetFolder = targetFolders[0];
     
     // Check if target path starts with source path (meaning target is inside source)
-    if (targetFolder.path.startsWith(sourceFolder.path + '/')) {
+    if (targetFolder.path && targetFolder.path.startsWith(sourceFolder.path + '/')) {
       throw new Error('Cannot move folder into its own subfolder');
     }
   }
@@ -600,7 +659,7 @@ export async function moveFolder(
       'SELECT * FROM folders WHERE id = ?',
       [targetFolderId]
     );
-    if (targetFolders[0]) {
+    if (targetFolders[0] && targetFolders[0].path) {
       newPath = `${targetFolders[0].path}/${sourceFolder.name}`;
     }
   }
@@ -631,11 +690,13 @@ export async function moveFolder(
 
   // Update all child folders' paths
   for (const child of childFolders) {
-    const childNewPath = child.path.replace(oldPath, newPath);
-    await query(
-      'UPDATE folders SET path = ? WHERE id = ?',
-      [childNewPath, child.id]
-    );
+    if (child.path) {
+      const childNewPath = child.path.replace(oldPath, newPath);
+      await query(
+        'UPDATE folders SET path = ? WHERE id = ?',
+        [childNewPath, child.id]
+      );
+    }
   }
 
   // Move physical directory
@@ -656,10 +717,12 @@ export async function moveFolder(
       [sourceFolder.parent_id, oldPath, folderId]
     );
     for (const child of childFolders) {
-      await query(
-        'UPDATE folders SET path = ? WHERE id = ?',
-        [child.path, child.id]
-      );
+      if (child.path) {
+        await query(
+          'UPDATE folders SET path = ? WHERE id = ?',
+          [child.path, child.id]
+        );
+      }
     }
     throw new Error('Failed to move folder on disk');
   }
