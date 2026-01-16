@@ -117,8 +117,11 @@ export async function validateApiKey(request: Request): Promise<{ user: User; ap
 
   const apiKey = apiKeys[0];
   
-  // Update last used
-  await query('UPDATE api_keys SET last_used_at = NOW() WHERE id = ?', [apiKey.id]);
+  // Update last used AND increment request_count
+  await query(
+    'UPDATE api_keys SET last_used_at = NOW(), request_count = request_count + 1 WHERE id = ?', 
+    [apiKey.id]
+  );
 
   const user: User = {
     id: apiKey.uid,

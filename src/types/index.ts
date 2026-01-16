@@ -18,6 +18,7 @@ export interface ApiKey {
   key_prefix: string;
   permissions: string | ApiKeyPermissions;
   is_active: boolean;
+  request_count: number;  // เพิ่มใหม่
   last_used_at: Date | null;
   created_at: Date;
   expires_at: Date | null;

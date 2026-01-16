@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Key, Plus, Copy, Trash2, ToggleLeft, ToggleRight, Clock, Shield, AlertCircle, CheckCircle } from 'lucide-react';
+import { Key, Plus, Copy, Trash2, ToggleLeft, ToggleRight, Clock, Shield, AlertCircle, CheckCircle, Activity } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 interface ApiKey {
   id: number;
   key_prefix: string;
-  api_key: string;  // Added this property
+  api_key: string;
   name: string;
   permissions: {
     upload: boolean;
@@ -18,6 +18,7 @@ interface ApiKey {
     deleteFolder: boolean;
   };
   is_active: boolean;
+  request_count: number;  // เพิ่มใหม่
   expires_at: string | null;
   last_used_at: string | null;
   created_at: string;
@@ -211,6 +212,11 @@ export default function ApiKeysPage() {
     return new Date(expiresAt) < new Date();
   };
 
+  // Format request count with commas
+  const formatRequestCount = (count: number) => {
+    return count.toLocaleString('th-TH');
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -251,6 +257,7 @@ export default function ApiKeysPage() {
                   <th className="text-left p-4 font-medium text-gray-300">สิทธิ์</th>
                   <th className="text-left p-4 font-medium text-gray-300">สถานะ</th>
                   <th className="text-left p-4 font-medium text-gray-300">หมดอายุ</th>
+                  <th className="text-left p-4 font-medium text-gray-300">จำนวน Request</th>
                   <th className="text-left p-4 font-medium text-gray-300">ใช้งานล่าสุด</th>
                   <th className="text-right p-4 font-medium text-gray-300">จัดการ</th>
                 </tr>
@@ -320,6 +327,18 @@ export default function ApiKeysPage() {
                       ) : (
                         <span className="text-gray-500">ไม่มีกำหนด</span>
                       )}
+                    </td>
+                    {/* จำนวน Request - เพิ่มใหม่ */}
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-purple-400" />
+                        <span className={`font-mono text-sm ${
+                          key.request_count > 0 ? 'text-purple-400' : 'text-gray-500'
+                        }`}>
+                          {formatRequestCount(key.request_count || 0)}
+                        </span>
+                        <span className="text-gray-500 text-xs">ครั้ง</span>
+                      </div>
                     </td>
                     <td className="p-4 text-sm text-gray-400">
                       {formatDate(key.last_used_at)}

@@ -43,7 +43,7 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    // API Keys table
+    // API Keys table - เพิ่ม request_count
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS api_keys (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,6 +53,7 @@ export async function initDatabase() {
         key_prefix VARCHAR(20) NOT NULL,
         permissions JSON NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
+        request_count BIGINT DEFAULT 0,
         last_used_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP NULL,
@@ -132,6 +133,11 @@ export async function initDatabase() {
     
     try {
       await connection.execute(`ALTER TABLE folders ADD COLUMN public_url VARCHAR(100) NULL UNIQUE`);
+    } catch (e) {}
+
+    // เพิ่ม request_count สำหรับ database ที่มีอยู่แล้ว
+    try {
+      await connection.execute(`ALTER TABLE api_keys ADD COLUMN request_count BIGINT DEFAULT 0 AFTER is_active`);
     } catch (e) {}
 
     console.log('Database initialized successfully');
