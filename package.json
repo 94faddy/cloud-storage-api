@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 4025",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192' next dev -p 4025",
     "build": "next build",
-    "start": "next start -p 4025",
+    "start": "NODE_OPTIONS='--max-old-space-size=16384' next start -p 4025",
+    "start:large": "NODE_OPTIONS='--max-old-space-size=32768' next start -p 4025",
     "lint": "next lint",
     "init-db": "node scripts/init-db.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
+    "busboy": "^1.6.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.441.0",
     "mime-types": "^2.1.35",
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@types/archiver": "^6.0.2",
     "@types/bcryptjs": "^2.4.6",
+    "@types/busboy": "^1.5.4",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/mime-types": "^2.1.4",
     "@types/multer": "^1.4.12",

@@ -10,7 +10,10 @@ echo "📦 Building Next.js..."
 npm run build
 
 echo "🚀 Starting cloud storage api..."
-pm2 start npm --name "$APPNAME" -- start
+# ============================================
+# 🔧 เพิ่ม --max-old-space-size=16384 สำหรับไฟล์ใหญ่ 50-100GB
+# ============================================
+pm2 start npm --name "$APPNAME" --node-args="--max-old-space-size=16384" -- start
 
 echo "💾 Saving PM2 process list..."
 pm2 save

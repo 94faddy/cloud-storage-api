@@ -395,16 +395,21 @@ export default function FilesPage() {
   };
 
   const getTotalUploadStats = () => {
+    // คำนวณจากทุกไฟล์ ไม่ใช่แค่ uploading
+    const allFiles = uploadFiles.filter(f => f.status !== 'error');
+    const totalBytes = allFiles.reduce((sum, f) => sum + f.size, 0);
+    const uploadedBytes = allFiles.reduce((sum, f) => sum + f.uploadedBytes, 0);
+    
     const uploading = uploadFiles.filter(f => f.status === 'uploading');
-    const totalBytes = uploading.reduce((sum, f) => sum + f.size, 0);
-    const uploadedBytes = uploading.reduce((sum, f) => sum + f.uploadedBytes, 0);
     const avgSpeed = uploading.length > 0 
-      ? uploading.reduce((sum, f) => sum + f.speed, 0) / uploading.length 
+      ? uploading.reduce((sum, f) => sum + f.speed, 0)
       : 0;
+    
     const remainingBytes = totalBytes - uploadedBytes;
     const timeRemaining = avgSpeed > 0 ? remainingBytes / avgSpeed : 0;
+    const progress = totalBytes > 0 ? Math.round((uploadedBytes / totalBytes) * 100) : 0;
     
-    return { totalBytes, uploadedBytes, avgSpeed, timeRemaining };
+    return { totalBytes, uploadedBytes, avgSpeed, timeRemaining, progress };
   };
 
   const handleCreateFolder = async () => {

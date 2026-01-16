@@ -7,7 +7,7 @@ import { File, Folder } from '@/types';
 import archiver from 'archiver';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { PassThrough } from 'stream';
 
 const STORAGE_PATH = process.env.STORAGE_PATH || './uploads';
 
@@ -71,8 +71,6 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const tempZipPath = path.join(getStoragePath(), `temp_${uuidv4()}.zip`);
-  
   try {
     const shareId = params.id;
     const { searchParams } = new URL(request.url);
@@ -116,68 +114,76 @@ export async function GET(
       return apiError('Folder is empty', 400);
     }
 
-    // Create ZIP file
-    const output = fs.createWriteStream(tempZipPath);
+    // Calculate total size for estimation
+    let totalSize = 0;
+    for (const { file } of filesWithPaths) {
+      totalSize += file.size;
+    }
+
+    const sanitizedFolderName = folderName.replace(/[^a-zA-Z0-9ก-๙_\-\s\.]/g, '_');
+
+    // ========================================
+    // Streaming ZIP - ไม่ต้องสร้างไฟล์ temp
+    // ========================================
+    const passThrough = new PassThrough();
+    
     const archive = archiver('zip', {
-      zlib: { level: 5 } // Compression level (0-9)
+      zlib: { level: 5 }
     });
 
-    // Wait for the archive to finish
-    const archivePromise = new Promise<void>((resolve, reject) => {
-      output.on('close', resolve);
-      archive.on('error', reject);
+    // Handle archive errors
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      passThrough.destroy(err);
     });
 
-    archive.pipe(output);
+    // Pipe archive to passthrough stream
+    archive.pipe(passThrough);
 
     // Add files to archive
     for (const { file, relativePath } of filesWithPaths) {
       const filePath = path.join(getStoragePath(), file.path);
       
-      // Check if file exists
       if (fs.existsSync(filePath)) {
         archive.file(filePath, { name: relativePath });
       }
     }
 
-    await archive.finalize();
-    await archivePromise;
+    // Finalize archive (don't await - let it stream)
+    archive.finalize();
 
-    // Read the ZIP file
-    const zipBuffer = fs.readFileSync(tempZipPath);
-    const zipSize = zipBuffer.length;
+    // Convert Node.js stream to Web stream
+    const webStream = new ReadableStream({
+      start(controller) {
+        passThrough.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          controller.enqueue(new Uint8Array(buffer));
+        });
+        passThrough.on('end', () => {
+          controller.close();
+        });
+        passThrough.on('error', (err) => {
+          console.error('Stream error:', err);
+          controller.error(err);
+        });
+      },
+      cancel() {
+        archive.abort();
+        passThrough.destroy();
+      },
+    });
 
-    // Delete temp ZIP file immediately after reading
-    try {
-      fs.unlinkSync(tempZipPath);
-    } catch (e) {
-      console.error('Error deleting temp zip:', e);
-    }
-
-    // Send response
-    const sanitizedFolderName = folderName.replace(/[^a-zA-Z0-9ก-๙_\-\s\.]/g, '_');
-    
-    return new NextResponse(zipBuffer, {
+    return new NextResponse(webStream, {
       status: 200,
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(sanitizedFolderName)}.zip"`,
-        'Content-Length': zipSize.toString(),
+        'Transfer-Encoding': 'chunked',
       },
     });
 
   } catch (error: any) {
     console.error('Download folder error:', error);
-    
-    // Clean up temp file on error
-    try {
-      if (fs.existsSync(tempZipPath)) {
-        fs.unlinkSync(tempZipPath);
-      }
-    } catch (e) {
-      console.error('Error cleaning up temp zip:', e);
-    }
-    
     return apiError(error.message || 'Download failed', 500);
   }
 }
