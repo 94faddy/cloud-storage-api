@@ -8,7 +8,7 @@ interface Endpoint {
   method: 'GET' | 'POST' | 'DELETE' | 'PATCH';
   path: string;
   description: string;
-  auth: 'API Key' | 'Cookie' | 'None';
+  auth: 'API Key' | 'None';
   headers?: Record<string, string>;
   body?: Record<string, any>;
   response?: Record<string, any>;
@@ -29,9 +29,11 @@ const methodColors: Record<string, string> = {
 };
 
 export default function DocsPage() {
-  const [expandedSections, setExpandedSections] = useState<string[]>(['public', 'files']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['public']);
   const [activeEndpoint, setActiveEndpoint] = useState<string | null>(null);
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  
+  // ใช้ API URL จาก env
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://apiv1.nexzcloud.lol';
 
   // Parse max file size - 0 or empty means unlimited
   const maxFileSizeMB = parseInt(process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '0', 10);
@@ -84,17 +86,23 @@ export default function DocsPage() {
           },
           body: {
             file: 'File (ไฟล์ที่ต้องการอัพโหลด)',
-            folderId: 'number? (ID โฟลเดอร์)'
+            folderId: 'number? (ID โฟลเดอร์, optional)'
           },
           response: {
             success: true,
             data: {
-              id: 1,
-              name: 'photo.jpg',
-              size: 1024000,
-              mime_type: 'image/jpeg',
-              download_url: '/api/public/download/1'
-            }
+              uploaded: [{
+                id: 1,
+                filename: 'abc123.jpg',
+                originalName: 'photo.jpg',
+                size: 1024000,
+                mimeType: 'image/jpeg',
+                path: 'user_1/abc123.jpg',
+                url: '/api/public/download/1'
+              }],
+              errors: []
+            },
+            message: '1 file(s) uploaded successfully'
           },
           example: `// Node.js Example
 const FormData = require('form-data');
@@ -102,8 +110,10 @@ const fs = require('fs');
 
 const form = new FormData();
 form.append('file', fs.createReadStream('./photo.jpg'));
+// Optional: ระบุ folder
+form.append('folderId', '1');
 
-fetch('${baseUrl}/api/public/upload', {
+fetch('${apiUrl}/api/public/upload', {
   method: 'POST',
   headers: {
     'X-API-Key': 'cv_your_api_key_here'
@@ -112,9 +122,10 @@ fetch('${baseUrl}/api/public/upload', {
 });
 
 // cURL Example
-curl -X POST ${baseUrl}/api/public/upload \\
+curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
-  -F "file=@./photo.jpg"`
+  -F "file=@./photo.jpg" \\
+  -F "folderId=1"`
         },
         {
           method: 'GET',
@@ -122,36 +133,74 @@ curl -X POST ${baseUrl}/api/public/upload \\
           description: 'ดาวน์โหลดไฟล์ (ใช้ File ID หรือ Public UUID)',
           auth: 'API Key',
           headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          response: { type: 'Binary file stream' },
-          example: `// Download by File ID
-fetch('${baseUrl}/api/public/download/123', {
+          response: { type: 'Binary file stream (รองรับ Range requests สำหรับ resume download)' },
+          example: `// Download by File ID (ต้องใช้ API Key)
+fetch('${apiUrl}/api/public/download/123', {
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
 });
 
-// Download by Public UUID (ไม่ต้องใช้ API Key)
-fetch('${baseUrl}/api/public/download/abc123-uuid-here');
+// Download by Public UUID (ไม่ต้องใช้ API Key - สำหรับไฟล์ที่ share แล้ว)
+fetch('${apiUrl}/api/public/download/abc123-uuid-here');
+
+// Resume Download (รองรับ Range header)
+fetch('${apiUrl}/api/public/download/123', {
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Range': 'bytes=1000-'
+  }
+});
 
 // cURL
 curl -H "X-API-Key: cv_your_api_key_here" \\
-  ${baseUrl}/api/public/download/123 -o file.jpg`
+  ${apiUrl}/api/public/download/123 -o file.jpg
+
+# Resume download
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Range: bytes=1000-" \\
+  ${apiUrl}/api/public/download/123 -o file.jpg`
         },
         {
           method: 'GET',
           path: '/api/public/list',
-          description: 'แสดงรายการไฟล์ทั้งหมด',
+          description: 'แสดงรายการไฟล์และโฟลเดอร์',
           auth: 'API Key',
           headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          body: { folderId: 'number? (ID โฟลเดอร์)' },
+          body: { folderId: 'number? (ID โฟลเดอร์, optional - ถ้าไม่ระบุจะแสดง root)' },
           response: {
             success: true,
             data: {
-              files: ['{ id, name, size, mime_type, download_url }'],
-              folders: ['{ id, name }']
+              files: [{
+                id: 1,
+                name: 'abc123.jpg',
+                original_name: 'photo.jpg',
+                mime_type: 'image/jpeg',
+                size: 1024000,
+                is_public: false,
+                public_url: null,
+                created_at: '2025-01-17T10:00:00Z'
+              }],
+              folders: [{
+                id: 1,
+                name: 'My Folder',
+                path: 'My Folder',
+                is_public: false,
+                public_url: null
+              }]
             }
           },
-          example: `fetch('${baseUrl}/api/public/list?folderId=1', {
+          example: `// List root directory
+fetch('${apiUrl}/api/public/list', {
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
-});`
+});
+
+// List specific folder
+fetch('${apiUrl}/api/public/list?folderId=1', {
+  headers: { 'X-API-Key': 'cv_your_api_key_here' }
+});
+
+// cURL
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/list?folderId=1"`
         },
         {
           method: 'DELETE',
@@ -159,219 +208,92 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
           description: 'ลบไฟล์',
           auth: 'API Key',
           headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          response: { success: true, message: 'ลบไฟล์สำเร็จ' },
-          example: `fetch('${baseUrl}/api/public/delete/123', {
+          response: { 
+            success: true, 
+            message: 'File deleted successfully' 
+          },
+          example: `fetch('${apiUrl}/api/public/delete/123', {
   method: 'DELETE',
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
-});`
+});
+
+// cURL
+curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/delete/123"`
         },
         {
           method: 'POST',
           path: '/api/public/folders/create',
           description: 'สร้างโฟลเดอร์ใหม่',
           auth: 'API Key',
-          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          headers: { 
+            'X-API-Key': 'cv_your_api_key_here',
+            'Content-Type': 'application/json'
+          },
           body: {
             name: 'string (ชื่อโฟลเดอร์)',
-            parentId: 'number? (ID โฟลเดอร์ parent)'
+            parentId: 'number? (ID โฟลเดอร์ parent, optional)'
           },
           response: {
             success: true,
-            data: { id: 1, name: 'My Folder', path: '/My Folder' }
+            data: { 
+              id: 1, 
+              name: 'My Folder', 
+              path: 'My Folder',
+              parent_id: null,
+              is_public: false
+            },
+            message: 'Folder created successfully'
           },
-          example: `fetch('${baseUrl}/api/public/folders/create', {
+          example: `// Create folder at root
+fetch('${apiUrl}/api/public/folders/create', {
   method: 'POST',
   headers: { 
     'X-API-Key': 'cv_your_api_key_here',
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    name: 'My Folder',
-    parentId: null
+    name: 'My Folder'
   })
-});`
+});
+
+// Create subfolder
+fetch('${apiUrl}/api/public/folders/create', {
+  method: 'POST',
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'Subfolder',
+    parentId: 1
+  })
+});
+
+// cURL
+curl -X POST ${apiUrl}/api/public/folders/create \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "My Folder", "parentId": null}'`
         },
         {
           method: 'DELETE',
           path: '/api/public/folders/delete/:id',
-          description: 'ลบโฟลเดอร์ (รวมไฟล์ภายใน)',
+          description: 'ลบโฟลเดอร์ (รวมไฟล์และโฟลเดอร์ย่อยภายในทั้งหมด)',
           auth: 'API Key',
           headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          response: { success: true, message: 'ลบโฟลเดอร์สำเร็จ' },
-          example: `fetch('${baseUrl}/api/public/folders/delete/1', {
+          response: { 
+            success: true, 
+            message: 'Folder deleted successfully' 
+          },
+          example: `fetch('${apiUrl}/api/public/folders/delete/1', {
   method: 'DELETE',
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
-});`
-        }
-      ]
-    },
-    files: {
-      title: 'Files Management (Web Only)',
-      icon: <Upload className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/files/upload',
-          description: 'อัพโหลดไฟล์ (ต้อง Login)',
-          auth: 'Cookie',
-          headers: { 'Content-Type': 'multipart/form-data' },
-          body: {
-            files: 'File[] (ไฟล์ที่ต้องการอัพโหลด)',
-            folderId: 'number? (ID โฟลเดอร์, optional)',
-            relativePath: 'string? (path สำหรับ directory upload)'
-          },
-          response: {
-            success: true,
-            data: {
-              uploaded: ['{ id, name, size, mime_type }'],
-              failed: []
-            }
-          }
-        },
-        {
-          method: 'GET',
-          path: '/api/files/download/:id',
-          description: 'ดาวน์โหลดไฟล์',
-          auth: 'Cookie',
-          response: { type: 'Binary file stream' }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/files/delete/:id',
-          description: 'ลบไฟล์',
-          auth: 'Cookie',
-          response: { success: true, message: 'ลบไฟล์สำเร็จ' }
-        },
-        {
-          method: 'GET',
-          path: '/api/files/list',
-          description: 'แสดงรายการไฟล์และโฟลเดอร์',
-          auth: 'Cookie',
-          body: { folderId: 'number? (ID โฟลเดอร์ parent)' },
-          response: {
-            success: true,
-            data: {
-              files: ['{ id, name, size, mime_type, is_public }'],
-              folders: ['{ id, name, parent_id }']
-            }
-          }
-        },
-        {
-          method: 'POST',
-          path: '/api/files/share',
-          description: 'สร้าง/ยกเลิก Public Link',
-          auth: 'Cookie',
-          body: {
-            fileId: 'number',
-            isPublic: 'boolean'
-          },
-          response: {
-            success: true,
-            data: { public_url: 'uuid-string หรือ null' }
-          }
-        },
-        {
-          method: 'POST',
-          path: '/api/files/move',
-          description: 'ย้ายไฟล์ไปโฟลเดอร์อื่น',
-          auth: 'Cookie',
-          body: {
-            fileId: 'number',
-            targetFolderId: 'number | null'
-          },
-          response: { success: true, message: 'ย้ายไฟล์สำเร็จ' }
-        }
-      ]
-    },
-    folders: {
-      title: 'Folders Management (Web Only)',
-      icon: <FolderPlus className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/folders/create',
-          description: 'สร้างโฟลเดอร์ใหม่',
-          auth: 'Cookie',
-          body: {
-            name: 'string (ชื่อโฟลเดอร์)',
-            parentId: 'number? (ID โฟลเดอร์ parent)'
-          },
-          response: {
-            success: true,
-            data: { id: 1, name: 'My Folder', path: '/My Folder' }
-          }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/folders/delete/:id',
-          description: 'ลบโฟลเดอร์ (รวมไฟล์ภายใน)',
-          auth: 'Cookie',
-          response: { success: true, message: 'ลบโฟลเดอร์สำเร็จ' }
-        },
-        {
-          method: 'GET',
-          path: '/api/folders/list',
-          description: 'แสดงรายการโฟลเดอร์',
-          auth: 'Cookie',
-          body: { parentId: 'number? (ID โฟลเดอร์ parent)' },
-          response: {
-            success: true,
-            data: ['{ id, name, parent_id, path }']
-          }
-        }
-      ]
-    },
-    apikeys: {
-      title: 'API Keys Management (Web Only)',
-      icon: <Key className="w-5 h-5" />,
-      endpoints: [
-        {
-          method: 'POST',
-          path: '/api/apikeys/generate',
-          description: 'สร้าง API Key ใหม่',
-          auth: 'Cookie',
-          body: {
-            name: 'string (ชื่อ key)',
-            permissions: {
-              upload: 'boolean',
-              download: 'boolean',
-              delete: 'boolean',
-              list: 'boolean',
-              createFolder: 'boolean',
-              deleteFolder: 'boolean'
-            },
-            expiresIn: 'number? (วันที่หมดอายุ)'
-          },
-          response: {
-            success: true,
-            data: {
-              key: 'cv_xxxxxxxxxxxxxxxxxxxx',
-              id: 1
-            }
-          }
-        },
-        {
-          method: 'GET',
-          path: '/api/apikeys/list',
-          description: 'แสดงรายการ API Keys',
-          auth: 'Cookie',
-          response: {
-            success: true,
-            data: ['{ id, name, key_prefix, permissions, is_active, expires_at }']
-          }
-        },
-        {
-          method: 'DELETE',
-          path: '/api/apikeys/revoke/:id',
-          description: 'ลบ API Key',
-          auth: 'Cookie'
-        },
-        {
-          method: 'PATCH',
-          path: '/api/apikeys/revoke/:id',
-          description: 'เปิด/ปิดใช้งาน API Key',
-          auth: 'Cookie',
-          body: { is_active: 'boolean' }
+});
+
+// cURL
+curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/folders/delete/1"`
         }
       ]
     }
@@ -386,28 +308,28 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
             <Book className="w-6 h-6 text-blue-400" />
             API Documentation
           </h1>
-          <p className="text-gray-400 mt-1">คู่มือการใช้งาน Cloud Storage API</p>
+          <p className="text-gray-400 mt-1">คู่มือการใช้งาน NexzCloud API สำหรับเชื่อมต่อภายนอก</p>
         </div>
       </div>
 
       {/* Base URL Setting */}
       <div className="glass rounded-xl p-4">
-        <label className="block text-sm font-medium mb-2">Base URL</label>
+        <label className="block text-sm font-medium mb-2">🌐 API Base URL</label>
         <div className="flex gap-2">
           <input
             type="text"
-            value={baseUrl}
+            value={apiUrl}
             readOnly
-            className="input flex-1 bg-gray-800/80"
-            placeholder="https://your-domain.com"
+            className="input flex-1 bg-gray-800/80 font-mono"
           />
           <button
-            onClick={() => copyToClipboard(baseUrl)}
+            onClick={() => copyToClipboard(apiUrl)}
             className="btn-secondary"
           >
             <Copy className="w-4 h-4" />
           </button>
         </div>
+        <p className="text-xs text-gray-500 mt-2">* ใช้ URL นี้สำหรับเรียก API ทั้งหมด</p>
       </div>
 
       {/* Authentication Info */}
@@ -416,22 +338,18 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
           <Key className="w-5 h-5 text-yellow-400" />
           การ Authentication
         </h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="bg-gray-800/50 rounded-lg p-4">
-            <h3 className="font-medium text-green-400 mb-2">🔐 Cookie Auth (Web)</h3>
-            <p className="text-sm text-gray-400">
-              สำหรับใช้งานผ่าน Web Browser หลังจาก Login ระบบจะ set cookie อัตโนมัติ
-              (ใช้ได้เฉพาะบน Website เท่านั้น)
-            </p>
+        <div className="bg-gray-800/50 rounded-lg p-4">
+          <h3 className="font-medium text-blue-400 mb-3">🔑 API Key Authentication</h3>
+          <p className="text-sm text-gray-400 mb-3">
+            ส่ง API Key ผ่าน Header <code className="bg-gray-900 px-2 py-1 rounded text-blue-300">X-API-Key</code> ในทุก Request
+          </p>
+          <div className="bg-gray-900 rounded-lg p-3">
+            <code className="text-sm text-green-400">X-API-Key: cv_your_api_key_here</code>
           </div>
-          <div className="bg-gray-800/50 rounded-lg p-4">
-            <h3 className="font-medium text-blue-400 mb-2">🔑 API Key (External)</h3>
-            <p className="text-sm text-gray-400 mb-2">
-              สำหรับเชื่อมต่อจากระบบภายนอก ส่ง API Key ผ่าน Header:
+          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <p className="text-sm text-blue-300">
+              💡 <strong>วิธีสร้าง API Key:</strong> ไปที่หน้า <a href="/dashboard/apikeys" className="underline hover:text-blue-200">API Keys</a> แล้วกด "สร้าง API Key ใหม่"
             </p>
-            <code className="block bg-gray-900 px-3 py-2 rounded text-xs">
-              X-API-Key: cv_your_api_key_here
-            </code>
           </div>
         </div>
       </div>
@@ -511,10 +429,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
                         <span className="text-gray-400 text-sm hidden sm:inline">
                           — {endpoint.description}
                         </span>
-                        <span className={`ml-auto badge text-xs ${
-                          endpoint.auth === 'API Key' ? 'badge-warning' :
-                          endpoint.auth === 'Cookie' ? 'badge-info' : 'badge-secondary'
-                        }`}>
+                        <span className="ml-auto badge badge-warning text-xs">
                           {endpoint.auth}
                         </span>
                       </div>
@@ -526,7 +441,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
                         {endpoint.headers && (
                           <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Headers:</h4>
+                            <h4 className="text-sm font-medium text-gray-400 mb-2">📋 Headers:</h4>
                             <pre className="bg-gray-800 rounded-lg p-3 text-sm overflow-x-auto">
                               {JSON.stringify(endpoint.headers, null, 2)}
                             </pre>
@@ -535,7 +450,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
                         {endpoint.body && (
                           <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Request Body:</h4>
+                            <h4 className="text-sm font-medium text-gray-400 mb-2">📤 Request Body / Query Parameters:</h4>
                             <pre className="bg-gray-800 rounded-lg p-3 text-sm overflow-x-auto">
                               {JSON.stringify(endpoint.body, null, 2)}
                             </pre>
@@ -544,7 +459,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
                         {endpoint.response && (
                           <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Response:</h4>
+                            <h4 className="text-sm font-medium text-gray-400 mb-2">📥 Response:</h4>
                             <pre className="bg-gray-800 rounded-lg p-3 text-sm overflow-x-auto">
                               {JSON.stringify(endpoint.response, null, 2)}
                             </pre>
@@ -554,7 +469,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
                         {endpoint.example && (
                           <div>
                             <div className="flex items-center justify-between mb-2">
-                              <h4 className="text-sm font-medium text-gray-400">ตัวอย่างการใช้งาน:</h4>
+                              <h4 className="text-sm font-medium text-gray-400">💻 ตัวอย่างการใช้งาน:</h4>
                               <button
                                 onClick={() => copyToClipboard(endpoint.example!)}
                                 className="text-xs text-blue-400 hover:text-indigo-300 flex items-center gap-1"
@@ -589,22 +504,25 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
           {/* Node.js Example */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-yellow-400">Node.js / JavaScript</h3>
+              <h3 className="font-medium text-yellow-400">📦 Node.js / JavaScript</h3>
               <button
                 onClick={() => copyToClipboard(`const API_KEY = 'cv_your_api_key_here';
-const BASE_URL = '${baseUrl}';
+const BASE_URL = '${apiUrl}';
+
+const headers = { 'X-API-Key': API_KEY };
 
 // Upload file
-async function uploadFile(filePath) {
+async function uploadFile(filePath, folderId = null) {
   const FormData = require('form-data');
   const fs = require('fs');
   
   const form = new FormData();
   form.append('file', fs.createReadStream(filePath));
+  if (folderId) form.append('folderId', folderId.toString());
   
   const response = await fetch(\`\${BASE_URL}/api/public/upload\`, {
     method: 'POST',
-    headers: { 'X-API-Key': API_KEY },
+    headers: { ...headers },
     body: form
   });
   
@@ -617,22 +535,44 @@ async function listFiles(folderId = null) {
     ? \`\${BASE_URL}/api/public/list?folderId=\${folderId}\`
     : \`\${BASE_URL}/api/public/list\`;
     
-  const response = await fetch(url, {
-    headers: { 'X-API-Key': API_KEY }
-  });
-  
+  const response = await fetch(url, { headers });
   return response.json();
 }
 
 // Download file
 async function downloadFile(fileId, outputPath) {
-  const response = await fetch(\`\${BASE_URL}/api/public/download/\${fileId}\`, {
-    headers: { 'X-API-Key': API_KEY }
-  });
-  
   const fs = require('fs');
+  const response = await fetch(\`\${BASE_URL}/api/public/download/\${fileId}\`, { headers });
   const buffer = await response.arrayBuffer();
   fs.writeFileSync(outputPath, Buffer.from(buffer));
+}
+
+// Delete file
+async function deleteFile(fileId) {
+  const response = await fetch(\`\${BASE_URL}/api/public/delete/\${fileId}\`, {
+    method: 'DELETE',
+    headers
+  });
+  return response.json();
+}
+
+// Create folder
+async function createFolder(name, parentId = null) {
+  const response = await fetch(\`\${BASE_URL}/api/public/folders/create\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parentId })
+  });
+  return response.json();
+}
+
+// Delete folder
+async function deleteFolder(folderId) {
+  const response = await fetch(\`\${BASE_URL}/api/public/folders/delete/\${folderId}\`, {
+    method: 'DELETE',
+    headers
+  });
+  return response.json();
 }`)}
                 className="text-xs text-blue-400 hover:text-indigo-300 flex items-center gap-1"
               >
@@ -640,21 +580,24 @@ async function downloadFile(fileId, outputPath) {
                 คัดลอก
               </button>
             </div>
-            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto">
+            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto max-h-96">
 {`const API_KEY = 'cv_your_api_key_here';
-const BASE_URL = '${baseUrl}';
+const BASE_URL = '${apiUrl}';
+
+const headers = { 'X-API-Key': API_KEY };
 
 // Upload file
-async function uploadFile(filePath) {
+async function uploadFile(filePath, folderId = null) {
   const FormData = require('form-data');
   const fs = require('fs');
   
   const form = new FormData();
   form.append('file', fs.createReadStream(filePath));
+  if (folderId) form.append('folderId', folderId.toString());
   
   const response = await fetch(\`\${BASE_URL}/api/public/upload\`, {
     method: 'POST',
-    headers: { 'X-API-Key': API_KEY },
+    headers: { ...headers },
     body: form
   });
   
@@ -667,10 +610,37 @@ async function listFiles(folderId = null) {
     ? \`\${BASE_URL}/api/public/list?folderId=\${folderId}\`
     : \`\${BASE_URL}/api/public/list\`;
     
-  const response = await fetch(url, {
-    headers: { 'X-API-Key': API_KEY }
+  const response = await fetch(url, { headers });
+  return response.json();
+}
+
+// Download file
+async function downloadFile(fileId, outputPath) {
+  const fs = require('fs');
+  const response = await fetch(
+    \`\${BASE_URL}/api/public/download/\${fileId}\`, 
+    { headers }
+  );
+  const buffer = await response.arrayBuffer();
+  fs.writeFileSync(outputPath, Buffer.from(buffer));
+}
+
+// Delete file
+async function deleteFile(fileId) {
+  const response = await fetch(
+    \`\${BASE_URL}/api/public/delete/\${fileId}\`, 
+    { method: 'DELETE', headers }
+  );
+  return response.json();
+}
+
+// Create folder
+async function createFolder(name, parentId = null) {
+  const response = await fetch(\`\${BASE_URL}/api/public/folders/create\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parentId })
   });
-  
   return response.json();
 }`}
             </pre>
@@ -679,12 +649,12 @@ async function listFiles(folderId = null) {
           {/* Python Example */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-blue-400">Python</h3>
+              <h3 className="font-medium text-blue-400">🐍 Python</h3>
               <button
                 onClick={() => copyToClipboard(`import requests
 
 API_KEY = 'cv_your_api_key_here'
-BASE_URL = '${baseUrl}'
+BASE_URL = '${apiUrl}'
 
 headers = {'X-API-Key': API_KEY}
 
@@ -718,18 +688,43 @@ def download_file(file_id, output_path):
         headers=headers
     )
     with open(output_path, 'wb') as f:
-        f.write(response.content)`)}
+        f.write(response.content)
+
+# Delete file
+def delete_file(file_id):
+    response = requests.delete(
+        f'{BASE_URL}/api/public/delete/{file_id}',
+        headers=headers
+    )
+    return response.json()
+
+# Create folder
+def create_folder(name, parent_id=None):
+    response = requests.post(
+        f'{BASE_URL}/api/public/folders/create',
+        headers={**headers, 'Content-Type': 'application/json'},
+        json={'name': name, 'parentId': parent_id}
+    )
+    return response.json()
+
+# Delete folder  
+def delete_folder(folder_id):
+    response = requests.delete(
+        f'{BASE_URL}/api/public/folders/delete/{folder_id}',
+        headers=headers
+    )
+    return response.json()`)}
                 className="text-xs text-blue-400 hover:text-indigo-300 flex items-center gap-1"
               >
                 <Copy className="w-3 h-3" />
                 คัดลอก
               </button>
             </div>
-            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto">
+            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto max-h-96">
 {`import requests
 
 API_KEY = 'cv_your_api_key_here'
-BASE_URL = '${baseUrl}'
+BASE_URL = '${apiUrl}'
 
 headers = {'X-API-Key': API_KEY}
 
@@ -746,13 +741,39 @@ def upload_file(file_path, folder_id=None):
         )
     return response.json()
 
-# List files  
+# List files
 def list_files(folder_id=None):
     params = {'folderId': folder_id} if folder_id else {}
     response = requests.get(
         f'{BASE_URL}/api/public/list',
         headers=headers,
         params=params
+    )
+    return response.json()
+
+# Download file
+def download_file(file_id, output_path):
+    response = requests.get(
+        f'{BASE_URL}/api/public/download/{file_id}',
+        headers=headers
+    )
+    with open(output_path, 'wb') as f:
+        f.write(response.content)
+
+# Delete file
+def delete_file(file_id):
+    response = requests.delete(
+        f'{BASE_URL}/api/public/delete/{file_id}',
+        headers=headers
+    )
+    return response.json()
+
+# Create folder
+def create_folder(name, parent_id=None):
+    response = requests.post(
+        f'{BASE_URL}/api/public/folders/create',
+        headers={**headers, 'Content-Type': 'application/json'},
+        json={'name': name, 'parentId': parent_id}
     )
     return response.json()`}
             </pre>
@@ -761,31 +782,77 @@ def list_files(folder_id=None):
           {/* cURL Example */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-purple-400">cURL</h3>
-            </div>
-            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto">
-{`# Upload file
-curl -X POST ${baseUrl}/api/public/upload \\
+              <h3 className="font-medium text-purple-400">🔧 cURL</h3>
+              <button
+                onClick={() => copyToClipboard(`# Upload file
+curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
-  -F "file=@./myfile.jpg"
+  -F "file=@./myfile.jpg" \\
+  -F "folderId=1"
 
-# List files
+# List files (root)
 curl -H "X-API-Key: cv_your_api_key_here" \\
-  "${baseUrl}/api/public/list"
+  "${apiUrl}/api/public/list"
+
+# List files in folder
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/list?folderId=1"
 
 # Download file
 curl -H "X-API-Key: cv_your_api_key_here" \\
-  "${baseUrl}/api/public/download/123" -o output.jpg
+  "${apiUrl}/api/public/download/123" -o output.jpg
 
 # Delete file
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
-  "${baseUrl}/api/public/delete/123"
+  "${apiUrl}/api/public/delete/123"
 
 # Create folder
-curl -X POST ${baseUrl}/api/public/folders/create \\
+curl -X POST ${apiUrl}/api/public/folders/create \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -H "Content-Type: application/json" \\
-  -d '{"name": "My Folder"}'`}
+  -d '{"name": "My Folder", "parentId": null}'
+
+# Delete folder
+curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/folders/delete/1"`)}
+                className="text-xs text-blue-400 hover:text-indigo-300 flex items-center gap-1"
+              >
+                <Copy className="w-3 h-3" />
+                คัดลอก
+              </button>
+            </div>
+            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto">
+{`# Upload file
+curl -X POST ${apiUrl}/api/public/upload \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -F "file=@./myfile.jpg" \\
+  -F "folderId=1"
+
+# List files (root)
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/list"
+
+# List files in folder
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/list?folderId=1"
+
+# Download file
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/download/123" -o output.jpg
+
+# Delete file
+curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/delete/123"
+
+# Create folder
+curl -X POST ${apiUrl}/api/public/folders/create \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "My Folder", "parentId": null}'
+
+# Delete folder
+curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/folders/delete/1"`}
             </pre>
           </div>
         </div>
@@ -810,29 +877,29 @@ curl -X POST ${baseUrl}/api/public/folders/create \\
               <tr>
                 <td className="p-3"><code className="text-red-400">400</code></td>
                 <td className="p-3">Bad Request</td>
-                <td className="p-3 text-gray-400">ตรวจสอบ request body/parameters</td>
+                <td className="p-3 text-gray-400">ตรวจสอบ request body/parameters ให้ถูกต้อง</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-yellow-400">401</code></td>
                 <td className="p-3">Unauthorized</td>
-                <td className="p-3 text-gray-400">ตรวจสอบ API Key หรือ Login ใหม่</td>
+                <td className="p-3 text-gray-400">ตรวจสอบ API Key ว่าถูกต้องและยังไม่หมดอายุ</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-orange-400">403</code></td>
                 <td className="p-3">Forbidden</td>
-                <td className="p-3 text-gray-400">API Key ไม่มีสิทธิ์เข้าถึง endpoint นี้</td>
+                <td className="p-3 text-gray-400">API Key ไม่มีสิทธิ์เข้าถึง endpoint นี้ (ตรวจสอบ permissions)</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-blue-400">404</code></td>
                 <td className="p-3">Not Found</td>
-                <td className="p-3 text-gray-400">ไฟล์/โฟลเดอร์ไม่พบ</td>
+                <td className="p-3 text-gray-400">ไฟล์/โฟลเดอร์ไม่พบ หรือไม่มีสิทธิ์เข้าถึง</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-purple-400">413</code></td>
                 <td className="p-3">Payload Too Large</td>
                 <td className="p-3 text-gray-400">
                   {isFileSizeUnlimited 
-                    ? 'ไฟล์ใหญ่เกินไป (ไม่มีข้อจำกัดที่ตั้งไว้ แต่อาจถูกจำกัดโดย server)'
+                    ? 'ไฟล์ใหญ่เกินไป (อาจถูกจำกัดโดย server config)'
                     : `ไฟล์ใหญ่เกินกำหนด (${formatMaxFileSize()})`
                   }
                 </td>
@@ -845,7 +912,59 @@ curl -X POST ${baseUrl}/api/public/folders/create \\
               <tr>
                 <td className="p-3"><code className="text-red-500">500</code></td>
                 <td className="p-3">Server Error</td>
-                <td className="p-3 text-gray-400">ติดต่อ Admin หรือลองใหม่อีกครั้ง</td>
+                <td className="p-3 text-gray-400">เกิดข้อผิดพลาดภายใน server ลองใหม่อีกครั้ง</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* API Key Permissions */}
+      <div className="glass rounded-xl p-6">
+        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+          <Key className="w-5 h-5 text-green-400" />
+          API Key Permissions
+        </h2>
+        <p className="text-gray-400 mb-4">เมื่อสร้าง API Key คุณสามารถกำหนดสิทธิ์การใช้งานได้ดังนี้:</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-800/50">
+              <tr>
+                <th className="text-left p-3">Permission</th>
+                <th className="text-left p-3">คำอธิบาย</th>
+                <th className="text-left p-3">Endpoints ที่ใช้ได้</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700/50">
+              <tr>
+                <td className="p-3"><code className="text-green-400">upload</code></td>
+                <td className="p-3">อัพโหลดไฟล์</td>
+                <td className="p-3 text-gray-400">POST /api/public/upload</td>
+              </tr>
+              <tr>
+                <td className="p-3"><code className="text-blue-400">download</code></td>
+                <td className="p-3">ดาวน์โหลดไฟล์</td>
+                <td className="p-3 text-gray-400">GET /api/public/download/:id</td>
+              </tr>
+              <tr>
+                <td className="p-3"><code className="text-yellow-400">list</code></td>
+                <td className="p-3">ดูรายการไฟล์/โฟลเดอร์</td>
+                <td className="p-3 text-gray-400">GET /api/public/list</td>
+              </tr>
+              <tr>
+                <td className="p-3"><code className="text-red-400">delete</code></td>
+                <td className="p-3">ลบไฟล์</td>
+                <td className="p-3 text-gray-400">DELETE /api/public/delete/:id</td>
+              </tr>
+              <tr>
+                <td className="p-3"><code className="text-purple-400">createFolder</code></td>
+                <td className="p-3">สร้างโฟลเดอร์</td>
+                <td className="p-3 text-gray-400">POST /api/public/folders/create</td>
+              </tr>
+              <tr>
+                <td className="p-3"><code className="text-pink-400">deleteFolder</code></td>
+                <td className="p-3">ลบโฟลเดอร์</td>
+                <td className="p-3 text-gray-400">DELETE /api/public/folders/delete/:id</td>
               </tr>
             </tbody>
           </table>
