@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
       return apiError('Unauthorized', 401);
     }
 
-    // Get keys with full key value
+    // Get keys with full key value และ request_count
     const keys = await query<ApiKey[]>(
-      `SELECT id, user_id, name, api_key,
+      `SELECT id, user_id, name, api_key, request_count,
               permissions, is_active, last_used_at, created_at, expires_at 
        FROM api_keys 
        WHERE user_id = ? 
