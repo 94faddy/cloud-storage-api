@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Book, Copy, ChevronDown, ChevronRight, Code, Upload, Download, Trash2, FolderPlus, List, Key, CheckCircle, AlertCircle, Globe, Move, FolderInput } from 'lucide-react';
+import { Book, Copy, ChevronDown, ChevronRight, Code, Upload, Download, Trash2, FolderPlus, List, Key, CheckCircle, AlertCircle, Globe, Move, FolderInput, HardDrive } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 interface Endpoint {
@@ -75,6 +75,44 @@ export default function DocsPage() {
       title: 'Public API (External)',
       icon: <Globe className="w-5 h-5" />,
       endpoints: [
+        {
+          method: 'GET',
+          path: '/api/public/info',
+          description: 'ดูข้อมูลพื้นที่จัดเก็บและสถิติการใช้งาน',
+          auth: 'API Key',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          response: {
+            success: true,
+            data: {
+              storage: {
+                used: 5368709120,
+                limit: 53687091200,
+                available: 48318382080,
+                percentage: 10,
+                used_formatted: '5 GB',
+                limit_formatted: '50 GB',
+                available_formatted: '45 GB'
+              },
+              counts: {
+                files: 150,
+                folders: 25
+              },
+              user: {
+                username: 'john_doe',
+                email: 'john@example.com'
+              }
+            },
+            message: 'Storage info retrieved successfully'
+          },
+          example: `// Get storage info
+fetch('${apiUrl}/api/public/info', {
+  headers: { 'X-API-Key': 'cv_your_api_key_here' }
+});
+
+// cURL
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/info"`
+        },
         {
           method: 'POST',
           path: '/api/public/upload',
@@ -636,6 +674,12 @@ const BASE_URL = '${apiUrl}';
 
 const headers = { 'X-API-Key': API_KEY };
 
+// Get storage info
+async function getStorageInfo() {
+  const response = await fetch(\`\${BASE_URL}/api/public/info\`, { headers });
+  return response.json();
+}
+
 // Upload file
 async function uploadFile(filePath, folderId = null) {
   const FormData = require('form-data');
@@ -730,6 +774,12 @@ async function deleteFolder(folderId) {
 const BASE_URL = '${apiUrl}';
 
 const headers = { 'X-API-Key': API_KEY };
+
+// Get storage info
+async function getStorageInfo() {
+  const response = await fetch(\`\${BASE_URL}/api/public/info\`, { headers });
+  return response.json();
+}
 
 // Upload file
 async function uploadFile(filePath, folderId = null) {
@@ -832,6 +882,14 @@ BASE_URL = '${apiUrl}'
 
 headers = {'X-API-Key': API_KEY}
 
+# Get storage info
+def get_storage_info():
+    response = requests.get(
+        f'{BASE_URL}/api/public/info',
+        headers=headers
+    )
+    return response.json()
+
 # Upload file
 def upload_file(file_path, folder_id=None):
     with open(file_path, 'rb') as f:
@@ -920,6 +978,14 @@ BASE_URL = '${apiUrl}'
 
 headers = {'X-API-Key': API_KEY}
 
+# Get storage info
+def get_storage_info():
+    response = requests.get(
+        f'{BASE_URL}/api/public/info',
+        headers=headers
+    )
+    return response.json()
+
 # Upload file
 def upload_file(file_path, folder_id=None):
     with open(file_path, 'rb') as f:
@@ -1002,7 +1068,11 @@ def delete_folder(folder_id):
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-medium text-purple-400">🔧 cURL</h3>
               <button
-                onClick={() => copyToClipboard(`# Upload file
+                onClick={() => copyToClipboard(`# Get storage info
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/info"
+
+# Upload file
 curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -F "file=@./myfile.jpg" \\
@@ -1058,7 +1128,11 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
               </button>
             </div>
             <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto">
-{`# Upload file
+{`# Get storage info
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/info"
+
+# Upload file
 curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -F "file=@./myfile.jpg" \\
@@ -1202,8 +1276,8 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
               </tr>
               <tr>
                 <td className="p-3"><code className="text-yellow-400">list</code></td>
-                <td className="p-3">ดูรายการไฟล์/โฟลเดอร์</td>
-                <td className="p-3 text-gray-400">GET /api/public/list</td>
+                <td className="p-3">ดูรายการไฟล์/โฟลเดอร์ + ดูข้อมูลพื้นที่</td>
+                <td className="p-3 text-gray-400">GET /api/public/list, GET /api/public/info</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-red-400">delete</code></td>
