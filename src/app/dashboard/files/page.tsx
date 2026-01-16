@@ -6,7 +6,7 @@ import {
   FileText, Archive, Code, MoreVertical, Download, Trash2, Share2,
   ChevronRight, Home, RefreshCw, Grid, List, Search, X, Eye, Copy,
   CheckCircle, AlertCircle, Loader2, Link as LinkIcon, ExternalLink,
-  Move, FolderInput, ArrowRight
+  Move, FolderInput, ArrowRight, Square, CheckSquare, MinusSquare
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -59,7 +59,7 @@ interface UploadFile {
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [allFolders, setAllFolders] = useState<FolderItem[]>([]); // For move modal
+  const [allFolders, setAllFolders] = useState<FolderItem[]>([]);
   const [currentFolder, setCurrentFolder] = useState<number | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: 'หน้าแรก' }]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +79,15 @@ export default function FilesPage() {
   const [moveItem, setMoveItem] = useState<{ type: 'file' | 'folder'; item: FileItem | FolderItem } | null>(null);
   const [selectedTargetFolder, setSelectedTargetFolder] = useState<number | null>(null);
   const [moveLoading, setMoveLoading] = useState(false);
+
+  // ========================================
+  // 🚀 NEW: Multi-Select State
+  // ========================================
+  const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
+  const [selectedFolders, setSelectedFolders] = useState<Set<number>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
+  const [bulkMoveLoading, setBulkMoveLoading] = useState(false);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'file' | 'folder'; item: FileItem | FolderItem } | null>(null);
@@ -112,7 +121,6 @@ export default function FilesPage() {
       const res = await fetch('/api/folders/list?all=true');
       const data = await res.json();
       if (data.success) {
-        // Recursively fetch all folders
         const allFoldersData: FolderItem[] = [];
         
         const fetchFolderRecursive = async (parentId: number | null, depth: number = 0) => {
@@ -139,6 +147,9 @@ export default function FilesPage() {
 
   useEffect(() => {
     fetchFiles(currentFolder);
+    // Clear selection when changing folders
+    setSelectedFiles(new Set());
+    setSelectedFolders(new Set());
   }, [currentFolder, fetchFiles]);
 
   // Close context menu on click outside
@@ -147,6 +158,344 @@ export default function FilesPage() {
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
+
+  // ========================================
+  // 🚀 NEW: Selection Functions
+  // ========================================
+  
+  const totalSelected = selectedFiles.size + selectedFolders.size;
+  const hasSelection = totalSelected > 0;
+
+  const toggleFileSelection = (fileId: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      return newSet;
+    });
+    if (!isSelectionMode) setIsSelectionMode(true);
+  };
+
+  const toggleFolderSelection = (folderId: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedFolders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
+    if (!isSelectionMode) setIsSelectionMode(true);
+  };
+
+  const selectAll = () => {
+    setSelectedFiles(new Set(filteredFiles.map(f => f.id)));
+    setSelectedFolders(new Set(filteredFolders.map(f => f.id)));
+    setIsSelectionMode(true);
+  };
+
+  const deselectAll = () => {
+    setSelectedFiles(new Set());
+    setSelectedFolders(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const toggleSelectionMode = () => {
+    if (isSelectionMode) {
+      deselectAll();
+    } else {
+      setIsSelectionMode(true);
+    }
+  };
+
+  // ========================================
+  // 🚀 NEW: Bulk Delete Function
+  // ========================================
+  const handleBulkDelete = async () => {
+    if (!hasSelection) return;
+
+    const fileCount = selectedFiles.size;
+    const folderCount = selectedFolders.size;
+    
+    let message = 'คุณต้องการลบ';
+    if (fileCount > 0) message += ` ${fileCount} ไฟล์`;
+    if (fileCount > 0 && folderCount > 0) message += ' และ';
+    if (folderCount > 0) message += ` ${folderCount} โฟลเดอร์`;
+    message += ' หรือไม่?';
+
+    const result = await Swal.fire({
+      title: 'ยืนยันการลบ?',
+      html: `
+        <div class="text-left">
+          <p class="text-gray-300 mb-3">${message}</p>
+          ${folderCount > 0 ? '<p class="text-yellow-400 text-sm">⚠️ การลบโฟลเดอร์จะลบไฟล์ทั้งหมดภายในด้วย</p>' : ''}
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'ลบทั้งหมด',
+      cancelButtonText: 'ยกเลิก',
+      background: '#1e293b',
+      color: '#fff',
+      confirmButtonColor: '#ef4444',
+    });
+
+    if (!result.isConfirmed) return;
+
+    // Show loading
+    Swal.fire({
+      title: 'กำลังลบ...',
+      html: '<div class="text-gray-400">กรุณารอสักครู่</div>',
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      background: '#1e293b',
+      color: '#fff',
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    try {
+      let filesDeleted = 0;
+      let foldersDeleted = 0;
+      let errors: string[] = [];
+
+      // Delete folders first
+      if (selectedFolders.size > 0) {
+        const folderRes = await fetch('/api/folders/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderIds: Array.from(selectedFolders) }),
+        });
+        const folderData = await folderRes.json();
+        
+        if (folderData.success) {
+          foldersDeleted = folderData.data.deleted.length;
+          if (folderData.data.failed.length > 0) {
+            errors.push(...folderData.data.failed.map((f: any) => `โฟลเดอร์ ID ${f.id}: ${f.error}`));
+          }
+        } else {
+          errors.push(folderData.error || 'ลบโฟลเดอร์ล้มเหลว');
+        }
+      }
+
+      // Delete files
+      if (selectedFiles.size > 0) {
+        const fileRes = await fetch('/api/files/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileIds: Array.from(selectedFiles) }),
+        });
+        const fileData = await fileRes.json();
+        
+        if (fileData.success) {
+          filesDeleted = fileData.data.deleted.length;
+          if (fileData.data.failed.length > 0) {
+            errors.push(...fileData.data.failed.map((f: any) => `ไฟล์ ID ${f.id}: ${f.error}`));
+          }
+        } else {
+          errors.push(fileData.error || 'ลบไฟล์ล้มเหลว');
+        }
+      }
+
+      // Clear selection
+      deselectAll();
+      
+      // Refresh
+      fetchFiles(currentFolder);
+      triggerStorageUpdate();
+
+      // Show result
+      if (errors.length === 0) {
+        Swal.fire({
+          icon: 'success',
+          title: 'ลบสำเร็จ!',
+          html: `
+            <div class="text-gray-300">
+              ${filesDeleted > 0 ? `<p>ลบไฟล์ ${filesDeleted} ไฟล์</p>` : ''}
+              ${foldersDeleted > 0 ? `<p>ลบโฟลเดอร์ ${foldersDeleted} โฟลเดอร์</p>` : ''}
+            </div>
+          `,
+          timer: 2000,
+          showConfirmButton: false,
+          background: '#1e293b',
+          color: '#fff',
+        });
+      } else {
+        Swal.fire({
+          icon: 'warning',
+          title: 'ลบบางส่วนสำเร็จ',
+          html: `
+            <div class="text-left text-sm">
+              <p class="text-green-400 mb-2">สำเร็จ: ${filesDeleted + foldersDeleted} รายการ</p>
+              <p class="text-red-400 mb-2">ล้มเหลว: ${errors.length} รายการ</p>
+              <div class="max-h-32 overflow-y-auto text-gray-400">
+                ${errors.map(e => `<p>• ${e}</p>`).join('')}
+              </div>
+            </div>
+          `,
+          background: '#1e293b',
+          color: '#fff',
+          confirmButtonColor: '#6366f1',
+        });
+      }
+    } catch (error: any) {
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error.message,
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#6366f1',
+      });
+    }
+  };
+
+  // ========================================
+  // 🚀 NEW: Bulk Move Functions
+  // ========================================
+  const openBulkMoveModal = async () => {
+    if (!hasSelection) return;
+    setSelectedTargetFolder(null);
+    await fetchAllFolders();
+    setShowBulkMoveModal(true);
+  };
+
+const handleBulkMove = async () => {
+    if (!hasSelection) return;
+    
+    setBulkMoveLoading(true);
+    
+    // แปลง Set เป็น Array ก่อน
+    const selectedFolderIds = Array.from(selectedFolders);
+    const selectedFileIds = Array.from(selectedFiles);
+    
+    try {
+      let filesMoved = 0;
+      let foldersMoved = 0;
+      let errors: string[] = [];
+
+      // Move folders first
+      if (selectedFolderIds.length > 0) {
+        const folderRes = await fetch('/api/folders/bulk-move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            folderIds: selectedFolderIds,
+            targetFolderId: selectedTargetFolder
+          }),
+        });
+        const folderData = await folderRes.json();
+        
+        if (folderData.success) {
+          foldersMoved = folderData.data.moved.length;
+          if (folderData.data.failed.length > 0) {
+            errors.push(...folderData.data.failed.map((f: any) => `โฟลเดอร์ ID ${f.id}: ${f.error}`));
+          }
+        } else {
+          errors.push(folderData.error || 'ย้ายโฟลเดอร์ล้มเหลว');
+        }
+      }
+
+      // Move files
+      if (selectedFileIds.length > 0) {
+        const fileRes = await fetch('/api/files/bulk-move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            fileIds: selectedFileIds,
+            targetFolderId: selectedTargetFolder
+          }),
+        });
+        const fileData = await fileRes.json();
+        
+        if (fileData.success) {
+          filesMoved = fileData.data.moved.length;
+          if (fileData.data.failed.length > 0) {
+            errors.push(...fileData.data.failed.map((f: any) => `ไฟล์ ID ${f.id}: ${f.error}`));
+          }
+        } else {
+          errors.push(fileData.error || 'ย้ายไฟล์ล้มเหลว');
+        }
+      }
+
+      // Clear selection and close modal
+      deselectAll();
+      setShowBulkMoveModal(false);
+      
+      // Refresh
+      fetchFiles(currentFolder);
+
+      // Show result
+      if (errors.length === 0) {
+        Swal.fire({
+          icon: 'success',
+          title: 'ย้ายสำเร็จ!',
+          html: `
+            <div class="text-gray-300">
+              ${filesMoved > 0 ? `<p>ย้ายไฟล์ ${filesMoved} ไฟล์</p>` : ''}
+              ${foldersMoved > 0 ? `<p>ย้ายโฟลเดอร์ ${foldersMoved} โฟลเดอร์</p>` : ''}
+            </div>
+          `,
+          timer: 2000,
+          showConfirmButton: false,
+          background: '#1e293b',
+          color: '#fff',
+        });
+      } else {
+        Swal.fire({
+          icon: 'warning',
+          title: 'ย้ายบางส่วนสำเร็จ',
+          html: `
+            <div class="text-left text-sm">
+              <p class="text-green-400 mb-2">สำเร็จ: ${filesMoved + foldersMoved} รายการ</p>
+              <p class="text-red-400 mb-2">ล้มเหลว: ${errors.length} รายการ</p>
+              <div class="max-h-32 overflow-y-auto text-gray-400">
+                ${errors.map(e => `<p>• ${e}</p>`).join('')}
+              </div>
+            </div>
+          `,
+          background: '#1e293b',
+          color: '#fff',
+          confirmButtonColor: '#6366f1',
+        });
+      }
+    } catch (error: any) {
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error.message,
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#6366f1',
+      });
+    } finally {
+      setBulkMoveLoading(false);
+    }
+  };
+
+  const getAvailableFoldersForBulkMove = () => {
+    // Exclude selected folders and their children
+    return allFolders.filter(f => {
+      if (selectedFolders.has(f.id)) return false;
+      
+      // Check if this folder is a child of any selected folder
+      for (const selectedId of Array.from(selectedFolders)) {
+        const selectedFolder = folders.find(sf => sf.id === selectedId);
+        if (selectedFolder && f.path.startsWith(selectedFolder.path + '/')) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  };
 
   // Generate unique ID for upload files
   const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -508,10 +857,7 @@ export default function FilesPage() {
     }
   };
 
-  // ========================================
-  // 🚀 MOVE FILE / FOLDER FUNCTIONS
-  // ========================================
-  
+  // Single Move Modal Functions
   const openMoveModal = async (type: 'file' | 'folder', item: FileItem | FolderItem) => {
     setMoveItem({ type, item });
     setSelectedTargetFolder(null);
@@ -574,7 +920,6 @@ export default function FilesPage() {
   const getAvailableFolders = () => {
     if (!moveItem) return allFolders;
     
-    // If moving a folder, exclude itself and its children
     if (moveItem.type === 'folder') {
       const folderItem = moveItem.item as FolderItem;
       return allFolders.filter(f => 
@@ -853,6 +1198,22 @@ export default function FilesPage() {
     setContextMenu({ x: e.clientX, y: e.clientY, type, item });
   };
 
+  // ========================================
+  // 🚀 Checkbox Component
+  // ========================================
+  const SelectCheckbox = ({ checked, onChange, className = '' }: { checked: boolean; onChange: (e: React.MouseEvent) => void; className?: string }) => (
+    <button
+      onClick={onChange}
+      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+        checked 
+          ? 'bg-blue-500 border-blue-500 text-white' 
+          : 'border-gray-500 hover:border-blue-400'
+      } ${className}`}
+    >
+      {checked && <CheckCircle className="w-3.5 h-3.5" />}
+    </button>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -885,6 +1246,49 @@ export default function FilesPage() {
           </button>
         </div>
       </div>
+
+      {/* ========================================
+          🚀 NEW: Bulk Actions Bar
+          ======================================== */}
+      {hasSelection && (
+        <div className="glass rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-blue-500/30 bg-blue-500/5">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <CheckSquare className="w-5 h-5 text-blue-400" />
+              <span className="text-white font-medium">
+                เลือกแล้ว {totalSelected} รายการ
+              </span>
+              <span className="text-gray-400 text-sm">
+                ({selectedFiles.size} ไฟล์, {selectedFolders.size} โฟลเดอร์)
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openBulkMoveModal}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <Move className="w-4 h-4" />
+              ย้าย
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              className="btn-danger flex items-center gap-2 text-sm"
+            >
+              <Trash2 className="w-4 h-4" />
+              ลบ
+            </button>
+            <button
+              onClick={deselectAll}
+              className="btn-ghost flex items-center gap-2 text-sm"
+            >
+              <X className="w-4 h-4" />
+              ยกเลิกการเลือก
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Current Path Info */}
       <div className="glass rounded-lg p-3 flex items-center gap-2">
@@ -943,6 +1347,28 @@ export default function FilesPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
+            {/* Select All / Deselect All Button */}
+            {(filteredFiles.length > 0 || filteredFolders.length > 0) && (
+              <button
+                onClick={totalSelected === filteredFiles.length + filteredFolders.length ? deselectAll : selectAll}
+                className={`p-2 rounded-lg transition-colors flex items-center gap-2 text-sm ${
+                  hasSelection ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-gray-700/50 text-gray-400'
+                }`}
+                title={hasSelection ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'}
+              >
+                {totalSelected === filteredFiles.length + filteredFolders.length ? (
+                  <CheckSquare className="w-5 h-5" />
+                ) : hasSelection ? (
+                  <MinusSquare className="w-5 h-5" />
+                ) : (
+                  <Square className="w-5 h-5" />
+                )}
+                <span className="hidden md:inline">
+                  {hasSelection ? 'ยกเลิก' : 'เลือกทั้งหมด'}
+                </span>
+              </button>
+            )}
+
             <div className="relative flex-1 md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
@@ -1016,71 +1442,119 @@ export default function FilesPage() {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {/* Folders */}
-          {filteredFolders.map((folder) => (
-            <div
-              key={`folder-${folder.id}`}
-              className="card p-4 cursor-pointer hover:border-blue-500/50 transition-all group relative"
-              onDoubleClick={() => navigateToFolder(folder)}
-              onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="relative">
-                  <Folder className="w-10 h-10 text-yellow-400" />
-                  {folder.is_public && (
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                      <LinkIcon className="w-2.5 h-2.5 text-white" />
-                    </div>
-                  )}
+          {filteredFolders.map((folder) => {
+            const isSelected = selectedFolders.has(folder.id);
+            return (
+              <div
+                key={`folder-${folder.id}`}
+                className={`card p-4 cursor-pointer transition-all group relative ${
+                  isSelected 
+                    ? 'border-blue-500 bg-blue-500/10' 
+                    : 'hover:border-blue-500/50'
+                }`}
+                onDoubleClick={() => navigateToFolder(folder)}
+                onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
+                onClick={(e) => {
+                  if (isSelectionMode || e.ctrlKey || e.metaKey) {
+                    toggleFolderSelection(folder.id, e);
+                  }
+                }}
+              >
+                {/* Checkbox */}
+                <div 
+                  className={`absolute top-2 left-2 z-10 transition-opacity ${
+                    isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                >
+                  <SelectCheckbox 
+                    checked={isSelected} 
+                    onChange={(e) => toggleFolderSelection(folder.id, e)} 
+                  />
                 </div>
-                <div className="relative">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'folder', folder); }}
-                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
-                  >
-                    <MoreVertical className="w-4 h-4 text-gray-400" />
-                  </button>
+
+                <div className="flex items-center justify-between mb-3">
+                  <div className="relative">
+                    <Folder className="w-10 h-10 text-yellow-400" />
+                    {folder.is_public && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                        <LinkIcon className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'folder', folder); }}
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
+                    >
+                      <MoreVertical className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
                 </div>
+                <p className="text-sm text-white truncate">{folder.name}</p>
+                <p className="text-xs text-gray-500 mt-1">{formatDate(folder.created_at)}</p>
+                {folder.is_public && (
+                  <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
+                )}
               </div>
-              <p className="text-sm text-white truncate">{folder.name}</p>
-              <p className="text-xs text-gray-500 mt-1">{formatDate(folder.created_at)}</p>
-              {folder.is_public && (
-                <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
-              )}
-            </div>
-          ))}
+            );
+          })}
 
           {/* Files */}
-          {filteredFiles.map((file) => (
-            <div
-              key={`file-${file.id}`}
-              className="card p-4 hover:border-blue-500/50 transition-all group relative"
-              onContextMenu={(e) => handleContextMenu(e, 'file', file)}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="relative w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
-                  {getFileIcon(file.mime_type)}
-                  {file.is_public && (
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                      <LinkIcon className="w-2.5 h-2.5 text-white" />
-                    </div>
-                  )}
+          {filteredFiles.map((file) => {
+            const isSelected = selectedFiles.has(file.id);
+            return (
+              <div
+                key={`file-${file.id}`}
+                className={`card p-4 transition-all group relative ${
+                  isSelected 
+                    ? 'border-blue-500 bg-blue-500/10' 
+                    : 'hover:border-blue-500/50'
+                }`}
+                onContextMenu={(e) => handleContextMenu(e, 'file', file)}
+                onClick={(e) => {
+                  if (isSelectionMode || e.ctrlKey || e.metaKey) {
+                    toggleFileSelection(file.id, e);
+                  }
+                }}
+              >
+                {/* Checkbox */}
+                <div 
+                  className={`absolute top-2 left-2 z-10 transition-opacity ${
+                    isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                >
+                  <SelectCheckbox 
+                    checked={isSelected} 
+                    onChange={(e) => toggleFileSelection(file.id, e)} 
+                  />
                 </div>
-                <div className="relative">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'file', file); }}
-                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
-                  >
-                    <MoreVertical className="w-4 h-4 text-gray-400" />
-                  </button>
+
+                <div className="flex items-center justify-between mb-3">
+                  <div className="relative w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
+                    {getFileIcon(file.mime_type)}
+                    {file.is_public && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                        <LinkIcon className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'file', file); }}
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
+                    >
+                      <MoreVertical className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
                 </div>
+                <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
+                <p className="text-xs text-gray-500 mt-1">{formatBytes(file.size)}</p>
+                {file.is_public && (
+                  <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
+                )}
               </div>
-              <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
-              <p className="text-xs text-gray-500 mt-1">{formatBytes(file.size)}</p>
-              {file.is_public && (
-                <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         /* List View */
@@ -1088,6 +1562,18 @@ export default function FilesPage() {
           <table className="table">
             <thead>
               <tr>
+                <th className="w-12">
+                  <button
+                    onClick={totalSelected === filteredFiles.length + filteredFolders.length ? deselectAll : selectAll}
+                    className="w-5 h-5 rounded border-2 flex items-center justify-center transition-all border-gray-500 hover:border-blue-400"
+                  >
+                    {totalSelected === filteredFiles.length + filteredFolders.length && totalSelected > 0 ? (
+                      <CheckCircle className="w-3.5 h-3.5 text-blue-400" />
+                    ) : hasSelection ? (
+                      <div className="w-2 h-2 bg-blue-400 rounded-sm"></div>
+                    ) : null}
+                  </button>
+                </th>
                 <th>ชื่อ</th>
                 <th>ขนาด</th>
                 <th>วันที่สร้าง</th>
@@ -1097,145 +1583,164 @@ export default function FilesPage() {
             </thead>
             <tbody>
               {/* Folders */}
-              {filteredFolders.map((folder) => (
-                <tr
-                  key={`folder-${folder.id}`}
-                  className="cursor-pointer"
-                  onDoubleClick={() => navigateToFolder(folder)}
-                  onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
-                >
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        <Folder className="w-5 h-5 text-yellow-400" />
-                        {folder.is_public && (
-                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                        )}
+              {filteredFolders.map((folder) => {
+                const isSelected = selectedFolders.has(folder.id);
+                return (
+                  <tr
+                    key={`folder-${folder.id}`}
+                    className={`cursor-pointer ${isSelected ? 'bg-blue-500/10' : ''}`}
+                    onDoubleClick={() => navigateToFolder(folder)}
+                    onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
+                  >
+                    <td>
+                      <SelectCheckbox 
+                        checked={isSelected} 
+                        onChange={(e) => toggleFolderSelection(folder.id, e)} 
+                      />
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Folder className="w-5 h-5 text-yellow-400" />
+                          {folder.is_public && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+                          )}
+                        </div>
+                        <span className="text-white">{folder.name}</span>
                       </div>
-                      <span className="text-white">{folder.name}</span>
-                    </div>
-                  </td>
-                  <td className="text-gray-400">-</td>
-                  <td className="text-gray-400">{formatDate(folder.created_at)}</td>
-                  <td>
-                    {folder.is_public ? (
-                      <span className="badge badge-success flex items-center gap-1 w-fit">
-                        <LinkIcon className="w-3 h-3" />
-                        แชร์แล้ว
-                      </span>
-                    ) : (
-                      <span className="badge badge-secondary">ส่วนตัว</span>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openMoveModal('folder', folder); }}
-                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                        title="ย้าย"
-                      >
-                        <Move className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleShareFolder(folder.id, folder.is_public); }}
-                        className={`p-2 hover:bg-gray-700 rounded ${folder.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
-                        title={folder.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
-                      >
-                        <Share2 className="w-4 h-4" />
-                      </button>
-                      {folder.is_public && folder.public_url && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCopyShareLink(folder.public_url!, 'folder'); }}
-                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                          title="คัดลอกลิงก์"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
+                    </td>
+                    <td className="text-gray-400">-</td>
+                    <td className="text-gray-400">{formatDate(folder.created_at)}</td>
+                    <td>
+                      {folder.is_public ? (
+                        <span className="badge badge-success flex items-center gap-1 w-fit">
+                          <LinkIcon className="w-3 h-3" />
+                          แชร์แล้ว
+                        </span>
+                      ) : (
+                        <span className="badge badge-secondary">ส่วนตัว</span>
                       )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}
-                        className="p-2 hover:bg-red-500/20 rounded text-red-400"
-                        title="ลบ"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openMoveModal('folder', folder); }}
+                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                          title="ย้าย"
+                        >
+                          <Move className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleShareFolder(folder.id, folder.is_public); }}
+                          className={`p-2 hover:bg-gray-700 rounded ${folder.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
+                          title={folder.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        {folder.is_public && folder.public_url && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCopyShareLink(folder.public_url!, 'folder'); }}
+                            className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                            title="คัดลอกลิงก์"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}
+                          className="p-2 hover:bg-red-500/20 rounded text-red-400"
+                          title="ลบ"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {/* Files */}
-              {filteredFiles.map((file) => (
-                <tr 
-                  key={`file-${file.id}`}
-                  onContextMenu={(e) => handleContextMenu(e, 'file', file)}
-                >
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        {getFileIcon(file.mime_type)}
-                        {file.is_public && (
-                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                        )}
+              {filteredFiles.map((file) => {
+                const isSelected = selectedFiles.has(file.id);
+                return (
+                  <tr 
+                    key={`file-${file.id}`}
+                    className={isSelected ? 'bg-blue-500/10' : ''}
+                    onContextMenu={(e) => handleContextMenu(e, 'file', file)}
+                  >
+                    <td>
+                      <SelectCheckbox 
+                        checked={isSelected} 
+                        onChange={(e) => toggleFileSelection(file.id, e)} 
+                      />
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          {getFileIcon(file.mime_type)}
+                          {file.is_public && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+                          )}
+                        </div>
+                        <span className="text-white truncate max-w-xs">{file.original_name}</span>
                       </div>
-                      <span className="text-white truncate max-w-xs">{file.original_name}</span>
-                    </div>
-                  </td>
-                  <td className="text-gray-400">{formatBytes(file.size)}</td>
-                  <td className="text-gray-400">{formatDate(file.created_at)}</td>
-                  <td>
-                    {file.is_public ? (
-                      <span className="badge badge-success flex items-center gap-1 w-fit">
-                        <LinkIcon className="w-3 h-3" />
-                        แชร์แล้ว
-                      </span>
-                    ) : (
-                      <span className="badge badge-info">ส่วนตัว</span>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => handleDownload(file.id)}
-                        className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                        title="ดาวน์โหลด"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openMoveModal('file', file)}
-                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                        title="ย้าย"
-                      >
-                        <Move className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleShareFile(file.id, file.is_public)}
-                        className={`p-2 hover:bg-gray-700 rounded ${file.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
-                        title={file.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
-                      >
-                        <Share2 className="w-4 h-4" />
-                      </button>
-                      {file.is_public && file.public_url && (
-                        <button
-                          onClick={() => handleCopyShareLink(file.public_url!, 'file')}
-                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                          title="คัดลอกลิงก์"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
+                    </td>
+                    <td className="text-gray-400">{formatBytes(file.size)}</td>
+                    <td className="text-gray-400">{formatDate(file.created_at)}</td>
+                    <td>
+                      {file.is_public ? (
+                        <span className="badge badge-success flex items-center gap-1 w-fit">
+                          <LinkIcon className="w-3 h-3" />
+                          แชร์แล้ว
+                        </span>
+                      ) : (
+                        <span className="badge badge-info">ส่วนตัว</span>
                       )}
-                      <button
-                        onClick={() => handleDeleteFile(file.id, file.original_name)}
-                        className="p-2 hover:bg-red-500/20 rounded text-red-400"
-                        title="ลบ"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleDownload(file.id)}
+                          className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                          title="ดาวน์โหลด"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => openMoveModal('file', file)}
+                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                          title="ย้าย"
+                        >
+                          <Move className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleShareFile(file.id, file.is_public)}
+                          className={`p-2 hover:bg-gray-700 rounded ${file.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
+                          title={file.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        {file.is_public && file.public_url && (
+                          <button
+                            onClick={() => handleCopyShareLink(file.public_url!, 'file')}
+                            className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                            title="คัดลอกลิงก์"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteFile(file.id, file.original_name)}
+                          className="p-2 hover:bg-red-500/20 rounded text-red-400"
+                          title="ลบ"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1255,6 +1760,16 @@ export default function FilesPage() {
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
                 <Download className="w-4 h-4" /> ดาวน์โหลด
+              </button>
+              <button
+                onClick={() => { toggleFileSelection((contextMenu.item as FileItem).id); setContextMenu(null); }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+              >
+                {selectedFiles.has((contextMenu.item as FileItem).id) ? (
+                  <><CheckSquare className="w-4 h-4" /> ยกเลิกการเลือก</>
+                ) : (
+                  <><Square className="w-4 h-4" /> เลือก</>
+                )}
               </button>
               <button
                 onClick={() => { openMoveModal('file', contextMenu.item as FileItem); setContextMenu(null); }}
@@ -1302,6 +1817,16 @@ export default function FilesPage() {
                 <Folder className="w-4 h-4" /> เปิดโฟลเดอร์
               </button>
               <button
+                onClick={() => { toggleFolderSelection((contextMenu.item as FolderItem).id); setContextMenu(null); }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+              >
+                {selectedFolders.has((contextMenu.item as FolderItem).id) ? (
+                  <><CheckSquare className="w-4 h-4" /> ยกเลิกการเลือก</>
+                ) : (
+                  <><Square className="w-4 h-4" /> เลือก</>
+                )}
+              </button>
+              <button
                 onClick={() => { openMoveModal('folder', contextMenu.item as FolderItem); setContextMenu(null); }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
@@ -1342,11 +1867,10 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Move Modal */}
+      {/* Single Move Modal */}
       {showMoveModal && moveItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass rounded-2xl w-full max-w-md">
-            {/* Modal Header */}
             <div className="p-6 border-b border-gray-700/50">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Move className="w-6 h-6 text-blue-400" />
@@ -1360,11 +1884,9 @@ export default function FilesPage() {
               </p>
             </div>
 
-            {/* Folder Selection */}
             <div className="p-6 max-h-80 overflow-y-auto">
               <p className="text-sm text-gray-400 mb-3">เลือกโฟลเดอร์ปลายทาง:</p>
               
-              {/* Root option */}
               <button
                 onClick={() => setSelectedTargetFolder(null)}
                 className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
@@ -1380,7 +1902,6 @@ export default function FilesPage() {
                 )}
               </button>
 
-              {/* Folder list */}
               {getAvailableFolders().map((folder) => (
                 <button
                   key={folder.id}
@@ -1408,7 +1929,6 @@ export default function FilesPage() {
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-6 border-t border-gray-700/50 flex gap-3">
               <button
                 onClick={() => { setShowMoveModal(false); setMoveItem(null); }}
@@ -1434,11 +1954,96 @@ export default function FilesPage() {
         </div>
       )}
 
+      {/* ========================================
+          🚀 NEW: Bulk Move Modal
+          ======================================== */}
+      {showBulkMoveModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Move className="w-6 h-6 text-blue-400" />
+                ย้ายหลายรายการ
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">
+                เลือกแล้ว {selectedFiles.size} ไฟล์, {selectedFolders.size} โฟลเดอร์
+              </p>
+            </div>
+
+            <div className="p-6 max-h-80 overflow-y-auto">
+              <p className="text-sm text-gray-400 mb-3">เลือกโฟลเดอร์ปลายทาง:</p>
+              
+              <button
+                onClick={() => setSelectedTargetFolder(null)}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                  selectedTargetFolder === null 
+                    ? 'bg-blue-500/20 border border-blue-500/50' 
+                    : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                }`}
+              >
+                <Home className="w-5 h-5 text-blue-400" />
+                <span>หน้าแรก (Root)</span>
+                {selectedTargetFolder === null && (
+                  <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
+                )}
+              </button>
+
+              {getAvailableFoldersForBulkMove().map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => setSelectedTargetFolder(folder.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                    selectedTargetFolder === folder.id 
+                      ? 'bg-blue-500/20 border border-blue-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                  }`}
+                  style={{ paddingLeft: `${((folder as any).depth || 0) * 16 + 12}px` }}
+                >
+                  <Folder className="w-5 h-5 text-yellow-400" />
+                  <span className="truncate">{folder.name}</span>
+                  <span className="text-xs text-gray-500 truncate ml-auto mr-2">
+                    {folder.path}
+                  </span>
+                  {selectedTargetFolder === folder.id && (
+                    <CheckCircle className="w-4 h-4 text-blue-400" />
+                  )}
+                </button>
+              ))}
+
+              {getAvailableFoldersForBulkMove().length === 0 && (
+                <p className="text-gray-500 text-center py-4">ไม่มีโฟลเดอร์อื่น</p>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-700/50 flex gap-3">
+              <button
+                onClick={() => setShowBulkMoveModal(false)}
+                className="btn-secondary flex-1"
+                disabled={bulkMoveLoading}
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleBulkMove}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+                disabled={bulkMoveLoading}
+              >
+                {bulkMoveLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-4 h-4" />
+                )}
+                ย้าย {totalSelected} รายการ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            {/* Modal Header */}
             <div className="p-6 border-b border-gray-700/50">
               <div className="flex items-center justify-between">
                 <div>
@@ -1458,7 +2063,6 @@ export default function FilesPage() {
                 </button>
               </div>
 
-              {/* Total Progress with Speed */}
               {isUploading && (
                 <div className="mt-4">
                   <div className="flex items-center justify-between text-sm mb-2">
@@ -1485,7 +2089,6 @@ export default function FilesPage() {
               )}
             </div>
 
-            {/* File List */}
             <div className="flex-1 overflow-y-auto p-6">
               {uploadFiles.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">
@@ -1608,7 +2211,6 @@ export default function FilesPage() {
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-6 border-t border-gray-700/50">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-400">
