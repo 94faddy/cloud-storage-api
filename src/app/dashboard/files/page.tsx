@@ -54,6 +54,7 @@ interface UploadFile {
   uploadedBytes: number;
   startTime: number;
   speed: number;
+  relativePath: string; // 🚀 เพิ่ม relativePath
 }
 
 export default function FilesPage() {
@@ -80,9 +81,7 @@ export default function FilesPage() {
   const [selectedTargetFolder, setSelectedTargetFolder] = useState<number | null>(null);
   const [moveLoading, setMoveLoading] = useState(false);
 
-  // ========================================
-  // 🚀 NEW: Multi-Select State
-  // ========================================
+  // Multi-Select State
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [selectedFolders, setSelectedFolders] = useState<Set<number>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -147,22 +146,17 @@ export default function FilesPage() {
 
   useEffect(() => {
     fetchFiles(currentFolder);
-    // Clear selection when changing folders
     setSelectedFiles(new Set());
     setSelectedFolders(new Set());
   }, [currentFolder, fetchFiles]);
 
-  // Close context menu on click outside
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
 
-  // ========================================
-  // 🚀 NEW: Selection Functions
-  // ========================================
-  
+  // Selection Functions
   const totalSelected = selectedFiles.size + selectedFolders.size;
   const hasSelection = totalSelected > 0;
 
@@ -214,9 +208,7 @@ export default function FilesPage() {
     }
   };
 
-  // ========================================
-  // 🚀 NEW: Bulk Delete Function
-  // ========================================
+  // Bulk Delete Function
   const handleBulkDelete = async () => {
     if (!hasSelection) return;
 
@@ -248,7 +240,6 @@ export default function FilesPage() {
 
     if (!result.isConfirmed) return;
 
-    // Show loading
     Swal.fire({
       title: 'กำลังลบ...',
       html: '<div class="text-gray-400">กรุณารอสักครู่</div>',
@@ -266,7 +257,6 @@ export default function FilesPage() {
       let foldersDeleted = 0;
       let errors: string[] = [];
 
-      // Delete folders first
       if (selectedFolders.size > 0) {
         const folderRes = await fetch('/api/folders/bulk-delete', {
           method: 'POST',
@@ -285,7 +275,6 @@ export default function FilesPage() {
         }
       }
 
-      // Delete files
       if (selectedFiles.size > 0) {
         const fileRes = await fetch('/api/files/bulk-delete', {
           method: 'POST',
@@ -304,14 +293,10 @@ export default function FilesPage() {
         }
       }
 
-      // Clear selection
       deselectAll();
-      
-      // Refresh
       fetchFiles(currentFolder);
       triggerStorageUpdate();
 
-      // Show result
       if (errors.length === 0) {
         Swal.fire({
           icon: 'success',
@@ -357,9 +342,7 @@ export default function FilesPage() {
     }
   };
 
-  // ========================================
-  // 🚀 NEW: Bulk Move Functions
-  // ========================================
+  // Bulk Move Functions
   const openBulkMoveModal = async () => {
     if (!hasSelection) return;
     setSelectedTargetFolder(null);
@@ -367,12 +350,11 @@ export default function FilesPage() {
     setShowBulkMoveModal(true);
   };
 
-const handleBulkMove = async () => {
+  const handleBulkMove = async () => {
     if (!hasSelection) return;
     
     setBulkMoveLoading(true);
     
-    // แปลง Set เป็น Array ก่อน
     const selectedFolderIds = Array.from(selectedFolders);
     const selectedFileIds = Array.from(selectedFiles);
     
@@ -381,7 +363,6 @@ const handleBulkMove = async () => {
       let foldersMoved = 0;
       let errors: string[] = [];
 
-      // Move folders first
       if (selectedFolderIds.length > 0) {
         const folderRes = await fetch('/api/folders/bulk-move', {
           method: 'POST',
@@ -403,7 +384,6 @@ const handleBulkMove = async () => {
         }
       }
 
-      // Move files
       if (selectedFileIds.length > 0) {
         const fileRes = await fetch('/api/files/bulk-move', {
           method: 'POST',
@@ -425,14 +405,10 @@ const handleBulkMove = async () => {
         }
       }
 
-      // Clear selection and close modal
       deselectAll();
       setShowBulkMoveModal(false);
-      
-      // Refresh
       fetchFiles(currentFolder);
 
-      // Show result
       if (errors.length === 0) {
         Swal.fire({
           icon: 'success',
@@ -481,11 +457,9 @@ const handleBulkMove = async () => {
   };
 
   const getAvailableFoldersForBulkMove = () => {
-    // Exclude selected folders and their children
     return allFolders.filter(f => {
       if (selectedFolders.has(f.id)) return false;
       
-      // Check if this folder is a child of any selected folder
       for (const selectedId of Array.from(selectedFolders)) {
         const selectedFolder = folders.find(sf => sf.id === selectedId);
         if (selectedFolder && f.path.startsWith(selectedFolder.path + '/')) {
@@ -532,7 +506,9 @@ const handleBulkMove = async () => {
     return `${hours}ชม ${mins}น`;
   };
 
-  // Add files to upload queue
+  // ============================================
+  // 🚀 FIXED: Add files to upload queue with relativePath
+  // ============================================
   const addFilesToQueue = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
@@ -541,6 +517,9 @@ const handleBulkMove = async () => {
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       if (file.size > 0 && file.name && file.name !== 'undefined') {
+        // 🚀 เก็บ webkitRelativePath สำหรับโฟลเดอร์
+        const relativePath = (file as any).webkitRelativePath || '';
+        
         newFiles.push({
           id: generateId(),
           file,
@@ -550,7 +529,8 @@ const handleBulkMove = async () => {
           status: 'pending',
           uploadedBytes: 0,
           startTime: 0,
-          speed: 0
+          speed: 0,
+          relativePath: relativePath, // 🚀 เก็บ relativePath
         });
       }
     }
@@ -562,7 +542,9 @@ const handleBulkMove = async () => {
     }
   };
 
-  // Upload single file with progress tracking
+  // ============================================
+  // 🚀 FIXED: Upload single file with relativePath
+  // ============================================
   const uploadSingleFile = async (uploadFile: UploadFile): Promise<boolean> => {
     const abortController = new AbortController();
     uploadAbortControllers.current.set(uploadFile.id, abortController);
@@ -574,17 +556,23 @@ const handleBulkMove = async () => {
         f.id === uploadFile.id ? { ...f, status: 'uploading' as const, startTime } : f
       ));
 
+      // ========================================
+      // 🚀 FIXED: ส่ง fields ก่อน file
+      // ========================================
       const formData = new FormData();
-      formData.append('files', uploadFile.file);
       
-      const relativePath = (uploadFile.file as any).webkitRelativePath || '';
-      if (relativePath) {
-        formData.append('relativePaths', relativePath);
-      }
-
+      // 1️⃣ ส่ง folderId ก่อน (ถ้ามี)
       if (currentFolder !== null) {
         formData.append('folderId', currentFolder.toString());
       }
+      
+      // 2️⃣ ส่ง relativePaths ก่อน (สำคัญสำหรับโฟลเดอร์)
+      if (uploadFile.relativePath) {
+        formData.append('relativePaths', uploadFile.relativePath);
+      }
+      
+      // 3️⃣ ส่ง file หลังสุด
+      formData.append('files', uploadFile.file);
 
       return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
@@ -1198,9 +1186,7 @@ const handleBulkMove = async () => {
     setContextMenu({ x: e.clientX, y: e.clientY, type, item });
   };
 
-  // ========================================
-  // 🚀 Checkbox Component
-  // ========================================
+  // Checkbox Component
   const SelectCheckbox = ({ checked, onChange, className = '' }: { checked: boolean; onChange: (e: React.MouseEvent) => void; className?: string }) => (
     <button
       onClick={onChange}
@@ -1247,9 +1233,7 @@ const handleBulkMove = async () => {
         </div>
       </div>
 
-      {/* ========================================
-          🚀 NEW: Bulk Actions Bar
-          ======================================== */}
+      {/* Bulk Actions Bar */}
       {hasSelection && (
         <div className="glass rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-blue-500/30 bg-blue-500/5">
           <div className="flex items-center gap-4">
@@ -1347,7 +1331,6 @@ const handleBulkMove = async () => {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            {/* Select All / Deselect All Button */}
             {(filteredFiles.length > 0 || filteredFolders.length > 0) && (
               <button
                 onClick={totalSelected === filteredFiles.length + filteredFolders.length ? deselectAll : selectAll}
@@ -1460,7 +1443,6 @@ const handleBulkMove = async () => {
                   }
                 }}
               >
-                {/* Checkbox */}
                 <div 
                   className={`absolute top-2 left-2 z-10 transition-opacity ${
                     isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
@@ -1517,7 +1499,6 @@ const handleBulkMove = async () => {
                   }
                 }}
               >
-                {/* Checkbox */}
                 <div 
                   className={`absolute top-2 left-2 z-10 transition-opacity ${
                     isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
@@ -1954,9 +1935,7 @@ const handleBulkMove = async () => {
         </div>
       )}
 
-      {/* ========================================
-          🚀 NEW: Bulk Move Modal
-          ======================================== */}
+      {/* Bulk Move Modal */}
       {showBulkMoveModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass rounded-2xl w-full max-w-md">
@@ -2129,6 +2108,10 @@ const handleBulkMove = async () => {
 
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-white truncate">{uploadFile.name}</p>
+                            {/* 🚀 แสดง relativePath ถ้ามี */}
+                            {uploadFile.relativePath && (
+                              <p className="text-xs text-blue-400 truncate">📁 {uploadFile.relativePath}</p>
+                            )}
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <span className="text-xs text-gray-500">{formatBytes(uploadFile.size)}</span>
                               

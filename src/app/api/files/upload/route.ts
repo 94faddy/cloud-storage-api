@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '@/lib/db';
 import { Readable } from 'stream';
 import Busboy from 'busboy';
+import { Folder } from '@/types';
 
 const STORAGE_PATH = process.env.STORAGE_PATH || './uploads';
 
@@ -44,6 +45,107 @@ async function updateStorageUsed(userId: number, sizeDelta: number): Promise<voi
 }
 
 // ============================================
+// 🚀 Helper: สร้างโฟลเดอร์ตาม relativePath
+// ============================================
+async function createFoldersFromRelativePath(
+  userId: number,
+  relativePath: string,
+  baseFolderId: number | null
+): Promise<{ folderId: number | null; physicalPath: string }> {
+  const userPath = getUserStoragePath(userId);
+  
+  // ถ้าไม่มี relativePath ให้ใช้ baseFolderId
+  if (!relativePath || relativePath === '') {
+    if (baseFolderId !== null) {
+      const folders = await query<Folder[]>(
+        'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+        [baseFolderId, userId]
+      );
+      if (folders[0] && folders[0].path) {
+        const physicalPath = path.join(userPath, folders[0].path);
+        await ensureDir(physicalPath);
+        return { folderId: baseFolderId, physicalPath };
+      }
+    }
+    return { folderId: baseFolderId, physicalPath: userPath };
+  }
+
+  // แยก path: "FolderName/SubFolder/file.txt" -> ["FolderName", "SubFolder"]
+  const folderPath = path.dirname(relativePath);
+  
+  if (!folderPath || folderPath === '.') {
+    // ไฟล์อยู่ใน root ของโฟลเดอร์ที่อัพโหลด
+    if (baseFolderId !== null) {
+      const folders = await query<Folder[]>(
+        'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+        [baseFolderId, userId]
+      );
+      if (folders[0] && folders[0].path) {
+        const physicalPath = path.join(userPath, folders[0].path);
+        await ensureDir(physicalPath);
+        return { folderId: baseFolderId, physicalPath };
+      }
+    }
+    return { folderId: baseFolderId, physicalPath: userPath };
+  }
+
+  // แยก folder parts
+  const folderParts = folderPath.split(/[\/\\]/).filter(Boolean);
+  
+  if (folderParts.length === 0) {
+    return { folderId: baseFolderId, physicalPath: userPath };
+  }
+
+  // หา base path จาก baseFolderId
+  let basePath = '';
+  if (baseFolderId !== null) {
+    const baseFolder = await query<Folder[]>(
+      'SELECT path FROM folders WHERE id = ? AND user_id = ?',
+      [baseFolderId, userId]
+    );
+    if (baseFolder[0] && baseFolder[0].path) {
+      basePath = baseFolder[0].path;
+    }
+  }
+
+  // สร้างโฟลเดอร์ทีละระดับ
+  let parentId: number | null = baseFolderId;
+  let currentPath = basePath;
+
+  for (const folderName of folderParts) {
+    if (!folderName) continue;
+
+    currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+
+    // ตรวจสอบว่าโฟลเดอร์มีอยู่แล้วหรือไม่
+    const existingFolders = await query<Folder[]>(
+      'SELECT * FROM folders WHERE user_id = ? AND path = ?',
+      [userId, currentPath]
+    );
+
+    if (existingFolders[0]) {
+      parentId = existingFolders[0].id;
+    } else {
+      // สร้างโฟลเดอร์ใหม่
+      const result = await query<any>(
+        'INSERT INTO folders (user_id, parent_id, name, path) VALUES (?, ?, ?, ?)',
+        [userId, parentId, folderName, currentPath]
+      );
+      parentId = result.insertId;
+
+      // สร้าง physical directory
+      const physicalFolderPath = path.join(userPath, currentPath);
+      await ensureDir(physicalFolderPath);
+    }
+  }
+
+  const finalPhysicalPath = path.join(userPath, currentPath);
+  await ensureDir(finalPhysicalPath);
+
+  return { folderId: parentId, physicalPath: finalPhysicalPath };
+}
+
+// ============================================
 // 🚀 Streaming Upload Handler
 // ============================================
 export async function POST(request: NextRequest) {
@@ -72,7 +174,12 @@ export async function POST(request: NextRequest) {
 
     const results: any[] = [];
     const errors: string[] = [];
+    
+    // ========================================
+    // 🔧 เก็บ field values
+    // ========================================
     let folderId: number | null = null;
+    let relativePath: string = '';
 
     return new Promise<NextResponse>((resolve, reject) => {
       const busboy = Busboy({ 
@@ -85,9 +192,16 @@ export async function POST(request: NextRequest) {
 
       const filePromises: Promise<void>[] = [];
 
+      // ========================================
+      // 🔧 รับ field values (folderId + relativePaths)
+      // ========================================
       busboy.on('field', (fieldname, value) => {
         if (fieldname === 'folderId' && value) {
           folderId = parseInt(value);
+        }
+        // 🚀 รับ relativePaths field
+        if (fieldname === 'relativePaths' && value) {
+          relativePath = value;
         }
       });
 
@@ -99,95 +213,104 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        const ext = path.extname(filename);
-        const storedFilename = `${uuidv4()}${ext}`;
-        const filePath = path.join(userPath, storedFilename);
-        const dbPath = `user_${user.id}/${storedFilename}`;
-        
-        tempFiles.push(filePath);
-        
-        let fileSize = 0;
-        const writeStream = createWriteStream(filePath);
+        // 🔧 ใช้ relativePath ที่รับมาจาก field
+        const currentRelativePath = relativePath;
 
-        const filePromise = new Promise<void>((fileResolve, fileReject) => {
-          fileStream.on('data', (chunk: Buffer) => {
-            fileSize += chunk.length;
-          });
+        const filePromise = new Promise<void>(async (fileResolve, fileReject) => {
+          try {
+            // ========================================
+            // 🚀 สร้างโฟลเดอร์ตาม relativePath
+            // ========================================
+            const { folderId: actualFolderId, physicalPath: targetDir } = 
+              await createFoldersFromRelativePath(user.id, currentRelativePath, folderId);
 
-          fileStream.on('error', (err) => {
-            console.error(`Stream error for ${filename}:`, err);
-            errors.push(`${filename}: Stream error`);
-            writeStream.destroy();
-            fileReject(err);
-          });
+            const ext = path.extname(filename);
+            const storedFilename = `${uuidv4()}${ext}`;
+            const filePath = path.join(targetDir, storedFilename);
+            
+            // สร้าง dbPath ที่ถูกต้อง
+            const dbPath = path.relative(getStoragePath(), filePath);
+            
+            tempFiles.push(filePath);
+            
+            let fileSize = 0;
+            const writeStream = createWriteStream(filePath);
 
-          writeStream.on('error', (err) => {
-            console.error(`Write error for ${filename}:`, err);
-            errors.push(`${filename}: Write error`);
-            fileReject(err);
-          });
+            fileStream.on('data', (chunk: Buffer) => {
+              fileSize += chunk.length;
+            });
 
-          writeStream.on('finish', async () => {
-            try {
-              const hasSpace = await checkStorageLimit(user.id, fileSize);
-              if (!hasSpace) {
-                await unlink(filePath);
-                errors.push(`${filename}: Storage limit exceeded`);
-                fileResolve();
-                return;
-              }
-
-              let actualFolderId = folderId;
-              if (folderId) {
-                const folders = await query<any[]>(
-                  'SELECT id FROM folders WHERE id = ? AND user_id = ?',
-                  [folderId, user.id]
-                );
-                if (!folders[0]) {
-                  actualFolderId = null;
-                }
-              }
-
-              const result = await query<any>(
-                `INSERT INTO files (user_id, folder_id, name, original_name, mime_type, size, path)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [user.id, actualFolderId, storedFilename, filename, mimeType || 'application/octet-stream', fileSize, dbPath]
-              );
-
-              await updateStorageUsed(user.id, fileSize);
-
-              results.push({
-                id: result.insertId,
-                filename: storedFilename,
-                originalName: filename,
-                size: fileSize,
-                mimeType: mimeType || 'application/octet-stream',
-                path: dbPath,
-                url: `/api/files/download/${result.insertId}`,
-              });
-
-              await logActivity(
-                user.id,
-                'upload',
-                { filename, size: fileSize },
-                getClientIp(request),
-                getUserAgent(request)
-              );
-
-              tempFiles = tempFiles.filter(f => f !== filePath);
-              
+            fileStream.on('error', (err) => {
+              console.error(`Stream error for ${filename}:`, err);
+              errors.push(`${filename}: Stream error`);
+              writeStream.destroy();
               fileResolve();
-            } catch (err: any) {
-              console.error(`Database error for ${filename}:`, err);
-              errors.push(`${filename}: ${err.message}`);
+            });
+
+            writeStream.on('error', (err) => {
+              console.error(`Write error for ${filename}:`, err);
+              errors.push(`${filename}: Write error`);
+              fileResolve();
+            });
+
+            writeStream.on('finish', async () => {
               try {
-                await unlink(filePath);
-              } catch {}
-              fileResolve();
-            }
-          });
+                const hasSpace = await checkStorageLimit(user.id, fileSize);
+                if (!hasSpace) {
+                  await unlink(filePath);
+                  errors.push(`${filename}: Storage limit exceeded`);
+                  fileResolve();
+                  return;
+                }
 
-          fileStream.pipe(writeStream);
+                const result = await query<any>(
+                  `INSERT INTO files (user_id, folder_id, name, original_name, mime_type, size, path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                  [user.id, actualFolderId, storedFilename, filename, mimeType || 'application/octet-stream', fileSize, dbPath]
+                );
+
+                await updateStorageUsed(user.id, fileSize);
+
+                results.push({
+                  id: result.insertId,
+                  filename: storedFilename,
+                  originalName: filename,
+                  size: fileSize,
+                  mimeType: mimeType || 'application/octet-stream',
+                  path: dbPath,
+                  url: `/api/files/download/${result.insertId}`,
+                  folderId: actualFolderId,
+                  relativePath: currentRelativePath,
+                });
+
+                await logActivity(
+                  user.id,
+                  'upload',
+                  { filename, size: fileSize, relativePath: currentRelativePath },
+                  getClientIp(request),
+                  getUserAgent(request)
+                );
+
+                tempFiles = tempFiles.filter(f => f !== filePath);
+                
+                fileResolve();
+              } catch (err: any) {
+                console.error(`Database error for ${filename}:`, err);
+                errors.push(`${filename}: ${err.message}`);
+                try {
+                  await unlink(filePath);
+                } catch {}
+                fileResolve();
+              }
+            });
+
+            fileStream.pipe(writeStream);
+          } catch (err: any) {
+            console.error(`Setup error for ${filename}:`, err);
+            errors.push(`${filename}: ${err.message}`);
+            fileStream.resume();
+            fileResolve();
+          }
         });
 
         filePromises.push(filePromise);
