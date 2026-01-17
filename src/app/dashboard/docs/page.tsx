@@ -116,15 +116,16 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
         {
           method: 'POST',
           path: '/api/public/upload',
-          description: 'อัพโหลดไฟล์ผ่าน API Key',
+          description: 'อัพโหลดไฟล์หรือโฟลเดอร์ผ่าน API Key (รองรับหลายไฟล์และโครงสร้างโฟลเดอร์)',
           auth: 'API Key',
           headers: {
             'X-API-Key': 'cv_your_api_key_here',
             'Content-Type': 'multipart/form-data'
           },
           body: {
-            file: 'File (ไฟล์ที่ต้องการอัพโหลด)',
-            folderId: 'number? (ID โฟลเดอร์, optional)'
+            files: 'File | File[] (ไฟล์ที่ต้องการอัพโหลด - รองรับหลายไฟล์)',
+            folderId: 'number? (ID โฟลเดอร์ปลายทาง, optional - ถ้าไม่ระบุจะอัพโหลดไป root)',
+            relativePaths: 'string? (path สัมพัทธ์ของไฟล์ เช่น "MyFolder/SubFolder/file.txt" - ใช้สำหรับอัพโหลดโฟลเดอร์ ระบบจะสร้างโฟลเดอร์อัตโนมัติ)'
           },
           response: {
             success: true,
@@ -135,35 +136,53 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
                 originalName: 'photo.jpg',
                 size: 1024000,
                 mimeType: 'image/jpeg',
-                path: 'user_1/abc123.jpg',
-                url: '/api/public/download/1'
+                path: 'user_1/MyFolder/abc123.jpg',
+                url: '/api/public/download/1',
+                folderId: 5,
+                relativePath: 'MyFolder/photo.jpg'
               }],
               errors: []
             },
             message: '1 file(s) uploaded successfully'
           },
-          example: `// Node.js Example
-const FormData = require('form-data');
-const fs = require('fs');
+          example: `// Node.js - Upload single file
+        const FormData = require('form-data');
+        const fs = require('fs');
 
-const form = new FormData();
-form.append('file', fs.createReadStream('./photo.jpg'));
-// Optional: ระบุ folder
-form.append('folderId', '1');
+        const form = new FormData();
+        form.append('files', fs.createReadStream('./photo.jpg'));
+        form.append('folderId', '1'); // Optional
 
-fetch('${apiUrl}/api/public/upload', {
-  method: 'POST',
-  headers: {
-    'X-API-Key': 'cv_your_api_key_here'
-  },
-  body: form
-});
+        fetch('${apiUrl}/api/public/upload', {
+          method: 'POST',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          body: form
+        });
 
-// cURL Example
-curl -X POST ${apiUrl}/api/public/upload \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -F "file=@./photo.jpg" \\
-  -F "folderId=1"`
+        // Node.js - Upload with folder structure
+        const form2 = new FormData();
+        form2.append('folderId', '1'); // Optional: target folder
+        form2.append('relativePaths', 'MyFolder/SubFolder/image.jpg');
+        form2.append('files', fs.createReadStream('./image.jpg'));
+
+        fetch('${apiUrl}/api/public/upload', {
+          method: 'POST',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          body: form2
+        });
+
+        // cURL - Upload single file
+        curl -X POST ${apiUrl}/api/public/upload \\
+          -H "X-API-Key: cv_your_api_key_here" \\
+          -F "files=@./photo.jpg" \\
+          -F "folderId=1"
+
+        // cURL - Upload with folder structure
+        curl -X POST ${apiUrl}/api/public/upload \\
+          -H "X-API-Key: cv_your_api_key_here" \\
+          -F "folderId=1" \\
+          -F "relativePaths=MyFolder/SubFolder/photo.jpg" \\
+          -F "files=@./photo.jpg"`
         },
         {
           method: 'GET',

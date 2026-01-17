@@ -552,13 +552,11 @@ export default function FilesPage() {
     try {
       const startTime = Date.now();
       
+      // Set status to uploading
       setUploadFiles(prev => prev.map(f => 
-        f.id === uploadFile.id ? { ...f, status: 'uploading' as const, startTime } : f
+        f.id === uploadFile.id ? { ...f, status: 'uploading' as const, startTime, progress: 0, speed: 0 } : f
       ));
 
-      // ========================================
-      // 🚀 FIXED: ส่ง fields ก่อน file
-      // ========================================
       const formData = new FormData();
       
       // 1️⃣ ส่ง folderId ก่อน (ถ้ามี)
@@ -566,7 +564,7 @@ export default function FilesPage() {
         formData.append('folderId', currentFolder.toString());
       }
       
-      // 2️⃣ ส่ง relativePaths ก่อน (สำคัญสำหรับโฟลเดอร์)
+      // 2️⃣ ส่ง relativePaths ก่อน
       if (uploadFile.relativePath) {
         formData.append('relativePaths', uploadFile.relativePath);
       }
@@ -578,15 +576,22 @@ export default function FilesPage() {
         const xhr = new XMLHttpRequest();
         let lastLoaded = 0;
         let lastTime = startTime;
+        let currentSpeed = 0;
         
-        xhr.upload.addEventListener('progress', (event) => {
+        // 🚀 Progress tracking
+        xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
             const now = Date.now();
             const progress = Math.round((event.loaded / event.total) * 100);
             
+            // Calculate speed
             const timeDiff = (now - lastTime) / 1000;
-            const bytesDiff = event.loaded - lastLoaded;
-            const currentSpeed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+            if (timeDiff > 0.1) { // Update every 100ms minimum
+              const bytesDiff = event.loaded - lastLoaded;
+              currentSpeed = bytesDiff / timeDiff;
+              lastLoaded = event.loaded;
+              lastTime = now;
+            }
             
             setUploadFiles(prev => prev.map(f => {
               if (f.id === uploadFile.id) {
@@ -602,16 +607,19 @@ export default function FilesPage() {
               }
               return f;
             }));
-            
-            lastLoaded = event.loaded;
-            lastTime = now;
           }
-        });
+        };
 
-        xhr.addEventListener('load', () => {
+        xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             setUploadFiles(prev => prev.map(f => 
-              f.id === uploadFile.id ? { ...f, status: 'completed' as const, progress: 100, uploadedBytes: f.size, speed: 0 } : f
+              f.id === uploadFile.id ? { 
+                ...f, 
+                status: 'completed' as const, 
+                progress: 100, 
+                uploadedBytes: uploadFile.size, 
+                speed: 0 
+              } : f
             ));
             resolve(true);
           } else {
@@ -626,25 +634,35 @@ export default function FilesPage() {
             ));
             resolve(false);
           }
-        });
+        };
 
-        xhr.addEventListener('error', () => {
+        xhr.onerror = () => {
           setUploadFiles(prev => prev.map(f => 
             f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Network error' } : f
           ));
           resolve(false);
-        });
+        };
 
-        xhr.addEventListener('abort', () => {
+        xhr.onabort = () => {
           setUploadFiles(prev => prev.map(f => 
             f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Cancelled' } : f
           ));
           resolve(false);
-        });
+        };
+
+        // 🚀 Set timeout ยาวสำหรับไฟล์ใหญ่
+        xhr.timeout = 86400000; // 24 hours
+        xhr.ontimeout = () => {
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Timeout' } : f
+          ));
+          resolve(false);
+        };
 
         xhr.open('POST', '/api/files/upload');
         xhr.send(formData);
 
+        // Handle abort
         abortController.signal.addEventListener('abort', () => {
           xhr.abort();
         });
@@ -2028,11 +2046,43 @@ export default function FilesPage() {
                 <div>
                   <h2 className="text-xl font-bold text-white flex items-center gap-2">
                     <Upload className="w-6 h-6 text-blue-400" />
-                    อัพโหลดไฟล์
+                    {uploadFiles.some(f => f.relativePath && f.relativePath.includes('/')) 
+                      ? 'อัพโหลดโฟลเดอร์' 
+                      : 'อัพโหลดไฟล์'
+                    }
                   </h2>
-                  <p className="text-sm text-gray-400 mt-1">
-                    ไปยัง: <span className="text-blue-400">{getCurrentPathDisplay()}</span>
-                  </p>
+                  <div className="text-sm text-gray-400 mt-1 space-y-1">
+                    {/* แสดงชื่อโฟลเดอร์/ไฟล์ที่อัพโหลด */}
+                    {(() => {
+                      const hasRelativePath = uploadFiles.some(f => f.relativePath && f.relativePath.includes('/'));
+                      if (hasRelativePath) {
+                        const firstFileWithPath = uploadFiles.find(f => f.relativePath && f.relativePath.includes('/'));
+                        const folderName = firstFileWithPath?.relativePath.split('/')[0] || '';
+                        return (
+                          <p>
+                            <span className="text-yellow-400">📁 {folderName}/</span>
+                            <span className="text-gray-500 ml-2">({uploadFiles.length} ไฟล์)</span>
+                          </p>
+                        );
+                      } else if (uploadFiles.length === 1) {
+                        return (
+                          <p>
+                            <span className="text-blue-400">📄 {uploadFiles[0]?.name}</span>
+                          </p>
+                        );
+                      } else {
+                        return (
+                          <p>
+                            <span className="text-blue-400">📄 {uploadFiles.length} ไฟล์</span>
+                          </p>
+                        );
+                      }
+                    })()}
+                    {/* แสดง path ปลายทาง */}
+                    <p>
+                      ไปยัง: <span className="text-green-400">{getCurrentPathDisplay()}</span>
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={closeUploadModal}
@@ -2055,13 +2105,13 @@ export default function FilesPage() {
                         เหลือ {formatTimeRemaining(getTotalUploadStats().timeRemaining)}
                       </span>
                       <span className="text-gray-500">•</span>
-                      <span className="text-blue-400 font-bold">{totalProgress}%</span>
+                      <span className="text-blue-400 font-bold">{getTotalUploadStats().progress}%</span>
                     </div>
                   </div>
                   <div className="h-3 rounded-full bg-gray-700 overflow-hidden">
                     <div 
                       className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300"
-                      style={{ width: `${totalProgress}%` }}
+                      style={{ width: `${getTotalUploadStats().progress}%` }}
                     />
                   </div>
                 </div>
@@ -2076,120 +2126,88 @@ export default function FilesPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {uploadFiles.map((uploadFile) => {
-                    const remainingBytes = uploadFile.size - uploadFile.uploadedBytes;
-                    const timeRemaining = uploadFile.speed > 0 ? remainingBytes / uploadFile.speed : 0;
-                    
-                    return (
-                      <div 
-                        key={uploadFile.id}
-                        className={`p-4 rounded-lg border transition-all ${
-                          uploadFile.status === 'completed' 
-                            ? 'bg-green-500/10 border-green-500/30'
-                            : uploadFile.status === 'error'
-                            ? 'bg-red-500/10 border-red-500/30'
-                            : uploadFile.status === 'uploading'
-                            ? 'bg-blue-500/10 border-blue-500/30'
-                            : 'bg-gray-800/50 border-gray-700/50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex-shrink-0">
-                            {uploadFile.status === 'completed' ? (
-                              <CheckCircle className="w-6 h-6 text-green-400" />
-                            ) : uploadFile.status === 'error' ? (
-                              <AlertCircle className="w-6 h-6 text-red-400" />
-                            ) : uploadFile.status === 'uploading' ? (
-                              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-                            ) : (
-                              <FileIcon className="w-6 h-6 text-gray-400" />
-                            )}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white truncate">{uploadFile.name}</p>
-                            {/* 🚀 แสดง relativePath ถ้ามี */}
-                            {uploadFile.relativePath && (
-                              <p className="text-xs text-blue-400 truncate">📁 {uploadFile.relativePath}</p>
-                            )}
-                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                              <span className="text-xs text-gray-500">{formatBytes(uploadFile.size)}</span>
-                              
-                              {uploadFile.status === 'uploading' && (
-                                <>
-                                  <span className="text-xs text-gray-600">•</span>
-                                  <span className="text-xs text-green-400 font-bold">
-                                    {formatSpeed(uploadFile.speed)}
-                                  </span>
-                                  <span className="text-xs text-gray-600">•</span>
-                                  <span className="text-xs text-gray-400">
-                                    {formatBytes(uploadFile.uploadedBytes)} / {formatBytes(uploadFile.size)}
-                                  </span>
-                                  <span className="text-xs text-gray-600">•</span>
-                                  <span className="text-xs text-blue-400">
-                                    เหลือ {formatTimeRemaining(timeRemaining)}
-                                  </span>
-                                </>
-                              )}
-                              
-                              {uploadFile.status === 'error' && uploadFile.error && (
-                                <>
-                                  <span className="text-xs text-gray-600">•</span>
-                                  <span className="text-xs text-red-400">{uploadFile.error}</span>
-                                </>
-                              )}
-                              
-                              {uploadFile.status === 'completed' && (
-                                <>
-                                  <span className="text-xs text-gray-600">•</span>
-                                  <span className="text-xs text-green-400">สำเร็จ</span>
-                                </>
-                              )}
-                            </div>
-
-                            {(uploadFile.status === 'uploading' || uploadFile.status === 'completed') && (
-                              <div className="mt-2 h-1.5 rounded-full bg-gray-700 overflow-hidden">
-                                <div 
-                                  className={`h-full transition-all duration-300 ${
-                                    uploadFile.status === 'completed' 
-                                      ? 'bg-green-500' 
-                                      : 'bg-blue-500'
-                                  }`}
-                                  style={{ width: `${uploadFile.progress}%` }}
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                          {uploadFile.status === 'uploading' && (
-                            <span className="text-sm font-bold text-blue-400 min-w-[45px] text-right">
-                              {uploadFile.progress}%
-                            </span>
-                          )}
-
-                          <div className="flex-shrink-0">
-                            {uploadFile.status === 'uploading' ? (
-                              <button
-                                onClick={() => cancelUpload(uploadFile.id)}
-                                className="p-1.5 hover:bg-red-500/20 rounded text-red-400"
-                                title="ยกเลิก"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => removeFromQueue(uploadFile.id)}
-                                className="p-1.5 hover:bg-gray-700 rounded text-gray-400"
-                                title="ลบออกจากคิว"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                {uploadFiles.map((uploadFile) => (
+                  <div 
+                    key={uploadFile.id}
+                    className={`p-3 rounded-lg border transition-all ${
+                      uploadFile.status === 'completed' 
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : uploadFile.status === 'error'
+                        ? 'bg-red-500/10 border-red-500/30'
+                        : uploadFile.status === 'uploading'
+                        ? 'bg-blue-500/10 border-blue-500/30'
+                        : 'bg-gray-800/50 border-gray-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {/* Icon */}
+                      <div className="flex-shrink-0">
+                        {uploadFile.status === 'completed' ? (
+                          <CheckCircle className="w-5 h-5 text-green-400" />
+                        ) : uploadFile.status === 'error' ? (
+                          <AlertCircle className="w-5 h-5 text-red-400" />
+                        ) : uploadFile.status === 'uploading' ? (
+                          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                        ) : (
+                          <FileIcon className="w-5 h-5 text-gray-400" />
+                        )}
                       </div>
-                    );
-                  })}
+
+                      {/* File Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm text-white truncate">{uploadFile.name}</p>
+                          <span className="text-xs text-gray-500 flex-shrink-0">{formatBytes(uploadFile.size)}</span>
+                        </div>
+                        
+                        {/* Relative Path */}
+                        {uploadFile.relativePath && (
+                          <p className="text-xs text-blue-400 truncate">📁 {uploadFile.relativePath}</p>
+                        )}
+                        
+                        {/* Error Message */}
+                        {uploadFile.status === 'error' && uploadFile.error && (
+                          <p className="text-xs text-red-400 mt-1">{uploadFile.error}</p>
+                        )}
+
+                        {/* Progress Bar */}
+                        {(uploadFile.status === 'uploading' || uploadFile.status === 'completed') && (
+                          <div className="mt-2 h-1.5 rounded-full bg-gray-700 overflow-hidden">
+                            <div 
+                              className={`h-full transition-all duration-300 ${
+                                uploadFile.status === 'completed' 
+                                  ? 'bg-green-500' 
+                                  : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${uploadFile.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Cancel/Remove Button */}
+                      <div className="flex-shrink-0">
+                        {uploadFile.status === 'uploading' ? (
+                          <button
+                            onClick={() => cancelUpload(uploadFile.id)}
+                            className="p-1.5 hover:bg-red-500/20 rounded text-red-400"
+                            title="ยกเลิก"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => removeFromQueue(uploadFile.id)}
+                            className="p-1.5 hover:bg-gray-700 rounded text-gray-400"
+                            title="ลบออกจากคิว"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
                 </div>
               )}
             </div>
