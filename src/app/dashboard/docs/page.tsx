@@ -125,7 +125,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
           body: {
             files: 'File | File[] (ไฟล์ที่ต้องการอัพโหลด - รองรับหลายไฟล์)',
             folderId: 'number? (ID โฟลเดอร์ปลายทาง, optional - ถ้าไม่ระบุจะอัพโหลดไป root)',
-            relativePaths: 'string? (path สัมพัทธ์ของไฟล์ เช่น "MyFolder/SubFolder/file.txt" - ใช้สำหรับอัพโหลดโฟลเดอร์ ระบบจะสร้างโฟลเดอร์อัตโนมัติ)'
+            relativePaths: 'string | string[] (path สัมพัทธ์ของแต่ละไฟล์ - ต้องส่งตามลำดับเดียวกับ files เช่น ถ้าส่ง 3 files ต้องส่ง 3 relativePaths ตามลำดับ)'
           },
           response: {
             success: true,

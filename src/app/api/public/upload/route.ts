@@ -184,7 +184,10 @@ export async function POST(request: NextRequest) {
     // 🔧 เก็บ field values
     // ========================================
     let folderId: number | null = null;
-    let relativePath: string = '';
+    
+    // ⚡ แก้ไข: เก็บ relativePaths เป็น array
+    const relativePaths: string[] = [];
+    let fileIndex = 0;
 
     return new Promise<NextResponse>((resolve, reject) => {
       const busboy = Busboy({ 
@@ -204,9 +207,9 @@ export async function POST(request: NextRequest) {
         if (fieldname === 'folderId' && value) {
           folderId = parseInt(value);
         }
-        // 🚀 รับ relativePaths field
+        // ⚡ แก้ไข: เก็บทุก relativePaths เป็น array
         if (fieldname === 'relativePaths' && value) {
-          relativePath = value;
+          relativePaths.push(value);
         }
       });
 
@@ -218,8 +221,9 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // 🔧 ใช้ relativePath ที่รับมาจาก field
-        const currentRelativePath = relativePath;
+        // ⚡ แก้ไข: ใช้ relativePath ตาม index ของไฟล์
+        const currentFileIndex = fileIndex++;
+        const currentRelativePath = relativePaths[currentFileIndex] || '';
 
         const filePromise = new Promise<void>(async (fileResolve, fileReject) => {
           try {
