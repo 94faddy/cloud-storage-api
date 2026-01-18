@@ -6,7 +6,8 @@ import {
   FileText, Archive, Code, MoreVertical, Download, Trash2, Share2,
   ChevronRight, Home, RefreshCw, Grid, List, Search, X, Eye, Copy,
   CheckCircle, AlertCircle, Loader2, Link as LinkIcon, ExternalLink,
-  Move, FolderInput, ArrowRight, Square, CheckSquare, MinusSquare
+  Move, FolderInput, ArrowRight, Square, CheckSquare, MinusSquare,
+  Pencil, Edit
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -54,7 +55,7 @@ interface UploadFile {
   uploadedBytes: number;
   startTime: number;
   speed: number;
-  relativePath: string; // 🚀 เพิ่ม relativePath
+  relativePath: string;
 }
 
 export default function FilesPage() {
@@ -156,6 +157,129 @@ export default function FilesPage() {
     return () => window.removeEventListener('click', handleClick);
   }, []);
 
+  // ========================================
+  // 🆕 Rename Functions
+  // ========================================
+  const handleRenameFile = async (fileId: number, currentName: string) => {
+    const { value: newName } = await Swal.fire({
+      title: 'เปลี่ยนชื่อไฟล์',
+      input: 'text',
+      inputValue: currentName,
+      inputPlaceholder: 'ชื่อไฟล์ใหม่',
+      showCancelButton: true,
+      confirmButtonText: 'บันทึก',
+      cancelButtonText: 'ยกเลิก',
+      background: '#1e293b',
+      color: '#fff',
+      confirmButtonColor: '#6366f1',
+      inputValidator: (value) => {
+        if (!value || !value.trim()) return 'กรุณากรอกชื่อไฟล์';
+        if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(value.trim())) {
+          return 'ชื่อไฟล์ไม่ถูกต้อง (รองรับตัวอักษร ตัวเลข ภาษาไทย ช่องว่าง จุด ขีดกลาง ขีดล่าง)';
+        }
+        if (value.trim().length > 255) return 'ชื่อไฟล์ยาวเกินไป (สูงสุด 255 ตัวอักษร)';
+        return null;
+      },
+    });
+
+    if (newName && newName.trim() !== currentName) {
+      try {
+        const res = await fetch(`/api/files/rename/${fileId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newName: newName.trim() }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'เปลี่ยนชื่อสำเร็จ!',
+            timer: 1500,
+            showConfirmButton: false,
+            background: '#1e293b',
+            color: '#fff',
+          });
+          fetchFiles(currentFolder);
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (error: any) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เปลี่ยนชื่อไม่สำเร็จ',
+          text: error.message,
+          background: '#1e293b',
+          color: '#fff',
+          confirmButtonColor: '#6366f1',
+        });
+      }
+    }
+  };
+
+  const handleRenameFolder = async (folderId: number, currentName: string) => {
+    const { value: newName } = await Swal.fire({
+      title: 'เปลี่ยนชื่อโฟลเดอร์',
+      input: 'text',
+      inputValue: currentName,
+      inputPlaceholder: 'ชื่อโฟลเดอร์ใหม่',
+      showCancelButton: true,
+      confirmButtonText: 'บันทึก',
+      cancelButtonText: 'ยกเลิก',
+      background: '#1e293b',
+      color: '#fff',
+      confirmButtonColor: '#6366f1',
+      inputValidator: (value) => {
+        if (!value || !value.trim()) return 'กรุณากรอกชื่อโฟลเดอร์';
+        if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(value.trim())) {
+          return 'ชื่อโฟลเดอร์ไม่ถูกต้อง (รองรับตัวอักษร ตัวเลข ภาษาไทย ช่องว่าง จุด ขีดกลาง ขีดล่าง)';
+        }
+        if (value.trim().length > 255) return 'ชื่อโฟลเดอร์ยาวเกินไป (สูงสุด 255 ตัวอักษร)';
+        return null;
+      },
+    });
+
+    if (newName && newName.trim() !== currentName) {
+      try {
+        const res = await fetch(`/api/folders/rename/${folderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newName: newName.trim() }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'เปลี่ยนชื่อสำเร็จ!',
+            timer: 1500,
+            showConfirmButton: false,
+            background: '#1e293b',
+            color: '#fff',
+          });
+          fetchFiles(currentFolder);
+          // Update breadcrumbs if current folder was renamed
+          if (breadcrumbs.some(b => b.id === folderId)) {
+            setBreadcrumbs(prev => prev.map(b => 
+              b.id === folderId ? { ...b, name: newName.trim() } : b
+            ));
+          }
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (error: any) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เปลี่ยนชื่อไม่สำเร็จ',
+          text: error.message,
+          background: '#1e293b',
+          color: '#fff',
+          confirmButtonColor: '#6366f1',
+        });
+      }
+    }
+  };
+
   // Selection Functions
   const totalSelected = selectedFiles.size + selectedFolders.size;
   const hasSelection = totalSelected > 0;
@@ -200,277 +324,6 @@ export default function FilesPage() {
     setIsSelectionMode(false);
   };
 
-  const toggleSelectionMode = () => {
-    if (isSelectionMode) {
-      deselectAll();
-    } else {
-      setIsSelectionMode(true);
-    }
-  };
-
-  // Bulk Delete Function
-  const handleBulkDelete = async () => {
-    if (!hasSelection) return;
-
-    const fileCount = selectedFiles.size;
-    const folderCount = selectedFolders.size;
-    
-    let message = 'คุณต้องการลบ';
-    if (fileCount > 0) message += ` ${fileCount} ไฟล์`;
-    if (fileCount > 0 && folderCount > 0) message += ' และ';
-    if (folderCount > 0) message += ` ${folderCount} โฟลเดอร์`;
-    message += ' หรือไม่?';
-
-    const result = await Swal.fire({
-      title: 'ยืนยันการลบ?',
-      html: `
-        <div class="text-left">
-          <p class="text-gray-300 mb-3">${message}</p>
-          ${folderCount > 0 ? '<p class="text-yellow-400 text-sm">⚠️ การลบโฟลเดอร์จะลบไฟล์ทั้งหมดภายในด้วย</p>' : ''}
-        </div>
-      `,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'ลบทั้งหมด',
-      cancelButtonText: 'ยกเลิก',
-      background: '#1e293b',
-      color: '#fff',
-      confirmButtonColor: '#ef4444',
-    });
-
-    if (!result.isConfirmed) return;
-
-    Swal.fire({
-      title: 'กำลังลบ...',
-      html: '<div class="text-gray-400">กรุณารอสักครู่</div>',
-      allowOutsideClick: false,
-      showConfirmButton: false,
-      background: '#1e293b',
-      color: '#fff',
-      didOpen: () => {
-        Swal.showLoading();
-      }
-    });
-
-    try {
-      let filesDeleted = 0;
-      let foldersDeleted = 0;
-      let errors: string[] = [];
-
-      if (selectedFolders.size > 0) {
-        const folderRes = await fetch('/api/folders/bulk-delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ folderIds: Array.from(selectedFolders) }),
-        });
-        const folderData = await folderRes.json();
-        
-        if (folderData.success) {
-          foldersDeleted = folderData.data.deleted.length;
-          if (folderData.data.failed.length > 0) {
-            errors.push(...folderData.data.failed.map((f: any) => `โฟลเดอร์ ID ${f.id}: ${f.error}`));
-          }
-        } else {
-          errors.push(folderData.error || 'ลบโฟลเดอร์ล้มเหลว');
-        }
-      }
-
-      if (selectedFiles.size > 0) {
-        const fileRes = await fetch('/api/files/bulk-delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileIds: Array.from(selectedFiles) }),
-        });
-        const fileData = await fileRes.json();
-        
-        if (fileData.success) {
-          filesDeleted = fileData.data.deleted.length;
-          if (fileData.data.failed.length > 0) {
-            errors.push(...fileData.data.failed.map((f: any) => `ไฟล์ ID ${f.id}: ${f.error}`));
-          }
-        } else {
-          errors.push(fileData.error || 'ลบไฟล์ล้มเหลว');
-        }
-      }
-
-      deselectAll();
-      fetchFiles(currentFolder);
-      triggerStorageUpdate();
-
-      if (errors.length === 0) {
-        Swal.fire({
-          icon: 'success',
-          title: 'ลบสำเร็จ!',
-          html: `
-            <div class="text-gray-300">
-              ${filesDeleted > 0 ? `<p>ลบไฟล์ ${filesDeleted} ไฟล์</p>` : ''}
-              ${foldersDeleted > 0 ? `<p>ลบโฟลเดอร์ ${foldersDeleted} โฟลเดอร์</p>` : ''}
-            </div>
-          `,
-          timer: 2000,
-          showConfirmButton: false,
-          background: '#1e293b',
-          color: '#fff',
-        });
-      } else {
-        Swal.fire({
-          icon: 'warning',
-          title: 'ลบบางส่วนสำเร็จ',
-          html: `
-            <div class="text-left text-sm">
-              <p class="text-green-400 mb-2">สำเร็จ: ${filesDeleted + foldersDeleted} รายการ</p>
-              <p class="text-red-400 mb-2">ล้มเหลว: ${errors.length} รายการ</p>
-              <div class="max-h-32 overflow-y-auto text-gray-400">
-                ${errors.map(e => `<p>• ${e}</p>`).join('')}
-              </div>
-            </div>
-          `,
-          background: '#1e293b',
-          color: '#fff',
-          confirmButtonColor: '#6366f1',
-        });
-      }
-    } catch (error: any) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error.message,
-        background: '#1e293b',
-        color: '#fff',
-        confirmButtonColor: '#6366f1',
-      });
-    }
-  };
-
-  // Bulk Move Functions
-  const openBulkMoveModal = async () => {
-    if (!hasSelection) return;
-    setSelectedTargetFolder(null);
-    await fetchAllFolders();
-    setShowBulkMoveModal(true);
-  };
-
-  const handleBulkMove = async () => {
-    if (!hasSelection) return;
-    
-    setBulkMoveLoading(true);
-    
-    const selectedFolderIds = Array.from(selectedFolders);
-    const selectedFileIds = Array.from(selectedFiles);
-    
-    try {
-      let filesMoved = 0;
-      let foldersMoved = 0;
-      let errors: string[] = [];
-
-      if (selectedFolderIds.length > 0) {
-        const folderRes = await fetch('/api/folders/bulk-move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            folderIds: selectedFolderIds,
-            targetFolderId: selectedTargetFolder
-          }),
-        });
-        const folderData = await folderRes.json();
-        
-        if (folderData.success) {
-          foldersMoved = folderData.data.moved.length;
-          if (folderData.data.failed.length > 0) {
-            errors.push(...folderData.data.failed.map((f: any) => `โฟลเดอร์ ID ${f.id}: ${f.error}`));
-          }
-        } else {
-          errors.push(folderData.error || 'ย้ายโฟลเดอร์ล้มเหลว');
-        }
-      }
-
-      if (selectedFileIds.length > 0) {
-        const fileRes = await fetch('/api/files/bulk-move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            fileIds: selectedFileIds,
-            targetFolderId: selectedTargetFolder
-          }),
-        });
-        const fileData = await fileRes.json();
-        
-        if (fileData.success) {
-          filesMoved = fileData.data.moved.length;
-          if (fileData.data.failed.length > 0) {
-            errors.push(...fileData.data.failed.map((f: any) => `ไฟล์ ID ${f.id}: ${f.error}`));
-          }
-        } else {
-          errors.push(fileData.error || 'ย้ายไฟล์ล้มเหลว');
-        }
-      }
-
-      deselectAll();
-      setShowBulkMoveModal(false);
-      fetchFiles(currentFolder);
-
-      if (errors.length === 0) {
-        Swal.fire({
-          icon: 'success',
-          title: 'ย้ายสำเร็จ!',
-          html: `
-            <div class="text-gray-300">
-              ${filesMoved > 0 ? `<p>ย้ายไฟล์ ${filesMoved} ไฟล์</p>` : ''}
-              ${foldersMoved > 0 ? `<p>ย้ายโฟลเดอร์ ${foldersMoved} โฟลเดอร์</p>` : ''}
-            </div>
-          `,
-          timer: 2000,
-          showConfirmButton: false,
-          background: '#1e293b',
-          color: '#fff',
-        });
-      } else {
-        Swal.fire({
-          icon: 'warning',
-          title: 'ย้ายบางส่วนสำเร็จ',
-          html: `
-            <div class="text-left text-sm">
-              <p class="text-green-400 mb-2">สำเร็จ: ${filesMoved + foldersMoved} รายการ</p>
-              <p class="text-red-400 mb-2">ล้มเหลว: ${errors.length} รายการ</p>
-              <div class="max-h-32 overflow-y-auto text-gray-400">
-                ${errors.map(e => `<p>• ${e}</p>`).join('')}
-              </div>
-            </div>
-          `,
-          background: '#1e293b',
-          color: '#fff',
-          confirmButtonColor: '#6366f1',
-        });
-      }
-    } catch (error: any) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error.message,
-        background: '#1e293b',
-        color: '#fff',
-        confirmButtonColor: '#6366f1',
-      });
-    } finally {
-      setBulkMoveLoading(false);
-    }
-  };
-
-  const getAvailableFoldersForBulkMove = () => {
-    return allFolders.filter(f => {
-      if (selectedFolders.has(f.id)) return false;
-      
-      for (const selectedId of Array.from(selectedFolders)) {
-        const selectedFolder = folders.find(sf => sf.id === selectedId);
-        if (selectedFolder && f.path.startsWith(selectedFolder.path + '/')) {
-          return false;
-        }
-      }
-      
-      return true;
-    });
-  };
-
   // Generate unique ID for upload files
   const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -483,7 +336,7 @@ export default function FilesPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Format speed (bytes/s to readable)
+  // Format speed
   const formatSpeed = (bytesPerSecond: number) => {
     if (bytesPerSecond === 0) return '0 B/s';
     const k = 1024;
@@ -506,9 +359,7 @@ export default function FilesPage() {
     return `${hours}ชม ${mins}น`;
   };
 
-  // ============================================
-  // 🚀 FIXED: Add files to upload queue with relativePath
-  // ============================================
+  // Add files to upload queue
   const addFilesToQueue = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
@@ -517,7 +368,6 @@ export default function FilesPage() {
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       if (file.size > 0 && file.name && file.name !== 'undefined') {
-        // 🚀 เก็บ webkitRelativePath สำหรับโฟลเดอร์
         const relativePath = (file as any).webkitRelativePath || '';
         
         newFiles.push({
@@ -530,7 +380,7 @@ export default function FilesPage() {
           uploadedBytes: 0,
           startTime: 0,
           speed: 0,
-          relativePath: relativePath, // 🚀 เก็บ relativePath
+          relativePath: relativePath,
         });
       }
     }
@@ -542,9 +392,7 @@ export default function FilesPage() {
     }
   };
 
-  // ============================================
-  // 🚀 FIXED: Upload single file with relativePath
-  // ============================================
+  // Upload single file
   const uploadSingleFile = async (uploadFile: UploadFile): Promise<boolean> => {
     const abortController = new AbortController();
     uploadAbortControllers.current.set(uploadFile.id, abortController);
@@ -552,24 +400,20 @@ export default function FilesPage() {
     try {
       const startTime = Date.now();
       
-      // Set status to uploading
       setUploadFiles(prev => prev.map(f => 
         f.id === uploadFile.id ? { ...f, status: 'uploading' as const, startTime, progress: 0, speed: 0 } : f
       ));
 
       const formData = new FormData();
       
-      // 1️⃣ ส่ง folderId ก่อน (ถ้ามี)
       if (currentFolder !== null) {
         formData.append('folderId', currentFolder.toString());
       }
       
-      // 2️⃣ ส่ง relativePaths ก่อน
       if (uploadFile.relativePath) {
         formData.append('relativePaths', uploadFile.relativePath);
       }
       
-      // 3️⃣ ส่ง file หลังสุด
       formData.append('files', uploadFile.file);
 
       return new Promise((resolve) => {
@@ -578,15 +422,13 @@ export default function FilesPage() {
         let lastTime = startTime;
         let currentSpeed = 0;
         
-        // 🚀 Progress tracking
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
             const now = Date.now();
             const progress = Math.round((event.loaded / event.total) * 100);
             
-            // Calculate speed
             const timeDiff = (now - lastTime) / 1000;
-            if (timeDiff > 0.1) { // Update every 100ms minimum
+            if (timeDiff > 0.1) {
               const bytesDiff = event.loaded - lastLoaded;
               currentSpeed = bytesDiff / timeDiff;
               lastLoaded = event.loaded;
@@ -650,8 +492,7 @@ export default function FilesPage() {
           resolve(false);
         };
 
-        // 🚀 Set timeout ยาวสำหรับไฟล์ใหญ่
-        xhr.timeout = 86400000; // 24 hours
+        xhr.timeout = 86400000;
         xhr.ontimeout = () => {
           setUploadFiles(prev => prev.map(f => 
             f.id === uploadFile.id ? { ...f, status: 'error' as const, error: 'Timeout' } : f
@@ -662,7 +503,6 @@ export default function FilesPage() {
         xhr.open('POST', '/api/files/upload');
         xhr.send(formData);
 
-        // Handle abort
         abortController.signal.addEventListener('abort', () => {
           xhr.abort();
         });
@@ -722,15 +562,6 @@ export default function FilesPage() {
         icon: 'warning',
         title: 'อัพโหลดบางส่วน',
         text: `สำเร็จ ${successful}/${pendingFiles.length} ไฟล์`,
-        background: '#1e293b',
-        color: '#fff',
-        confirmButtonColor: '#6366f1'
-      });
-    } else {
-      Swal.fire({
-        icon: 'error',
-        title: 'อัพโหลดไม่สำเร็จ',
-        text: 'ไม่สามารถอัพโหลดไฟล์ได้',
         background: '#1e293b',
         color: '#fff',
         confirmButtonColor: '#6366f1'
@@ -863,7 +694,7 @@ export default function FilesPage() {
     }
   };
 
-  // Single Move Modal Functions
+  // Move Modal Functions
   const openMoveModal = async (type: 'file' | 'folder', item: FileItem | FolderItem) => {
     setMoveItem({ type, item });
     setSelectedTargetFolder(null);
@@ -897,7 +728,6 @@ export default function FilesPage() {
         Swal.fire({
           icon: 'success',
           title: 'ย้ายสำเร็จ!',
-          text: `${moveItem.type === 'file' ? 'ไฟล์' : 'โฟลเดอร์'}ถูกย้ายเรียบร้อยแล้ว`,
           timer: 1500,
           showConfirmButton: false,
           background: '#1e293b',
@@ -1031,9 +861,6 @@ export default function FilesPage() {
                   <input type="text" id="share-url" value="${publicUrl}" class="flex-1 px-3 py-2 bg-gray-700 rounded text-sm text-white" readonly />
                   <button onclick="navigator.clipboard.writeText('${publicUrl}'); this.innerHTML='✓'" class="px-3 py-2 bg-blue-500 hover:bg-blue-600 rounded text-white text-sm">คัดลอก</button>
                 </div>
-                <a href="${publicUrl}" target="_blank" class="text-blue-400 text-sm mt-3 inline-flex items-center gap-1 hover:underline">
-                  เปิดดูลิงก์ <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                </a>
               </div>
             `,
             showConfirmButton: true,
@@ -1078,13 +905,9 @@ export default function FilesPage() {
               <div class="text-left">
                 <p class="text-gray-400 mb-3">ลิงก์สาธารณะ:</p>
                 <div class="flex gap-2">
-                  <input type="text" id="share-url" value="${publicUrl}" class="flex-1 px-3 py-2 bg-gray-700 rounded text-sm text-white" readonly />
+                  <input type="text" value="${publicUrl}" class="flex-1 px-3 py-2 bg-gray-700 rounded text-sm text-white" readonly />
                   <button onclick="navigator.clipboard.writeText('${publicUrl}'); this.innerHTML='✓'" class="px-3 py-2 bg-blue-500 hover:bg-blue-600 rounded text-white text-sm">คัดลอก</button>
                 </div>
-                <p class="text-yellow-400 text-sm mt-3">⚠️ ผู้ที่มีลิงก์จะสามารถดูและดาวน์โหลดไฟล์ทั้งหมดในโฟลเดอร์นี้ได้</p>
-                <a href="${publicUrl}" target="_blank" class="text-blue-400 text-sm mt-2 inline-flex items-center gap-1 hover:underline">
-                  เปิดดูลิงก์ <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                </a>
               </div>
             `,
             showConfirmButton: true,
@@ -1096,7 +919,7 @@ export default function FilesPage() {
         } else {
           Swal.fire({
             icon: 'success',
-            title: 'ยกเลิกการแชร์โฟลเดอร์สำเร็จ',
+            title: 'ยกเลิกการแชร์สำเร็จ',
             timer: 1500,
             showConfirmButton: false,
             background: '#1e293b',
@@ -1116,7 +939,6 @@ export default function FilesPage() {
     Swal.fire({
       icon: 'success',
       title: 'คัดลอกลิงก์แล้ว!',
-      text: type === 'folder' ? 'ลิงก์โฟลเดอร์ถูกคัดลอกแล้ว' : 'ลิงก์ไฟล์ถูกคัดลอกแล้ว',
       timer: 1500,
       showConfirmButton: false,
       background: '#1e293b',
@@ -1171,24 +993,7 @@ export default function FilesPage() {
     e.preventDefault();
     setDragOver(false);
     
-    const items = e.dataTransfer.items;
-    if (items) {
-      const fileList: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i].webkitGetAsEntry?.();
-        if (item) {
-          if (item.isFile) {
-            const file = items[i].getAsFile();
-            if (file) fileList.push(file);
-          }
-        }
-      }
-      if (fileList.length > 0) {
-        const dataTransfer = new DataTransfer();
-        fileList.forEach(f => dataTransfer.items.add(f));
-        addFilesToQueue(dataTransfer.files);
-      }
-    } else if (e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer.files.length > 0) {
       addFilesToQueue(e.dataTransfer.files);
     }
   };
@@ -1251,55 +1056,11 @@ export default function FilesPage() {
         </div>
       </div>
 
-      {/* Bulk Actions Bar */}
-      {hasSelection && (
-        <div className="glass rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-blue-500/30 bg-blue-500/5">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <CheckSquare className="w-5 h-5 text-blue-400" />
-              <span className="text-white font-medium">
-                เลือกแล้ว {totalSelected} รายการ
-              </span>
-              <span className="text-gray-400 text-sm">
-                ({selectedFiles.size} ไฟล์, {selectedFolders.size} โฟลเดอร์)
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={openBulkMoveModal}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <Move className="w-4 h-4" />
-              ย้าย
-            </button>
-            <button
-              onClick={handleBulkDelete}
-              className="btn-danger flex items-center gap-2 text-sm"
-            >
-              <Trash2 className="w-4 h-4" />
-              ลบ
-            </button>
-            <button
-              onClick={deselectAll}
-              className="btn-ghost flex items-center gap-2 text-sm"
-            >
-              <X className="w-4 h-4" />
-              ยกเลิกการเลือก
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Current Path Info */}
       <div className="glass rounded-lg p-3 flex items-center gap-2">
         <Folder className="w-5 h-5 text-blue-400" />
         <span className="text-sm text-gray-400">ตำแหน่งปัจจุบัน:</span>
         <span className="text-sm text-white font-medium">{getCurrentPathDisplay()}</span>
-        {currentFolder && (
-          <span className="text-xs text-gray-500 ml-2">(ID: {currentFolder})</span>
-        )}
       </div>
 
       {/* Hidden Inputs */}
@@ -1349,27 +1110,6 @@ export default function FilesPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            {(filteredFiles.length > 0 || filteredFolders.length > 0) && (
-              <button
-                onClick={totalSelected === filteredFiles.length + filteredFolders.length ? deselectAll : selectAll}
-                className={`p-2 rounded-lg transition-colors flex items-center gap-2 text-sm ${
-                  hasSelection ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-gray-700/50 text-gray-400'
-                }`}
-                title={hasSelection ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'}
-              >
-                {totalSelected === filteredFiles.length + filteredFolders.length ? (
-                  <CheckSquare className="w-5 h-5" />
-                ) : hasSelection ? (
-                  <MinusSquare className="w-5 h-5" />
-                ) : (
-                  <Square className="w-5 h-5" />
-                )}
-                <span className="hidden md:inline">
-                  {hasSelection ? 'ยกเลิก' : 'เลือกทั้งหมด'}
-                </span>
-              </button>
-            )}
-
             <div className="relative flex-1 md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
@@ -1443,117 +1183,65 @@ export default function FilesPage() {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {/* Folders */}
-          {filteredFolders.map((folder) => {
-            const isSelected = selectedFolders.has(folder.id);
-            return (
-              <div
-                key={`folder-${folder.id}`}
-                className={`card p-4 cursor-pointer transition-all group relative ${
-                  isSelected 
-                    ? 'border-blue-500 bg-blue-500/10' 
-                    : 'hover:border-blue-500/50'
-                }`}
-                onDoubleClick={() => navigateToFolder(folder)}
-                onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
-                onClick={(e) => {
-                  if (isSelectionMode || e.ctrlKey || e.metaKey) {
-                    toggleFolderSelection(folder.id, e);
-                  }
-                }}
-              >
-                <div 
-                  className={`absolute top-2 left-2 z-10 transition-opacity ${
-                    isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  }`}
-                >
-                  <SelectCheckbox 
-                    checked={isSelected} 
-                    onChange={(e) => toggleFolderSelection(folder.id, e)} 
-                  />
+          {filteredFolders.map((folder) => (
+            <div
+              key={`folder-${folder.id}`}
+              className="card p-4 cursor-pointer hover:border-blue-500/50 transition-all group relative"
+              onDoubleClick={() => navigateToFolder(folder)}
+              onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="relative">
+                  <Folder className="w-10 h-10 text-yellow-400" />
+                  {folder.is_public && (
+                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                      <LinkIcon className="w-2.5 h-2.5 text-white" />
+                    </div>
+                  )}
                 </div>
-
-                <div className="flex items-center justify-between mb-3">
-                  <div className="relative">
-                    <Folder className="w-10 h-10 text-yellow-400" />
-                    {folder.is_public && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                        <LinkIcon className="w-2.5 h-2.5 text-white" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'folder', folder); }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
-                    >
-                      <MoreVertical className="w-4 h-4 text-gray-400" />
-                    </button>
-                  </div>
+                <div className="relative">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'folder', folder); }}
+                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
+                  >
+                    <MoreVertical className="w-4 h-4 text-gray-400" />
+                  </button>
                 </div>
-                <p className="text-sm text-white truncate">{folder.name}</p>
-                <p className="text-xs text-gray-500 mt-1">{formatDate(folder.created_at)}</p>
-                {folder.is_public && (
-                  <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
-                )}
               </div>
-            );
-          })}
+              <p className="text-sm text-white truncate">{folder.name}</p>
+              <p className="text-xs text-gray-500 mt-1">{formatDate(folder.created_at)}</p>
+            </div>
+          ))}
 
           {/* Files */}
-          {filteredFiles.map((file) => {
-            const isSelected = selectedFiles.has(file.id);
-            return (
-              <div
-                key={`file-${file.id}`}
-                className={`card p-4 transition-all group relative ${
-                  isSelected 
-                    ? 'border-blue-500 bg-blue-500/10' 
-                    : 'hover:border-blue-500/50'
-                }`}
-                onContextMenu={(e) => handleContextMenu(e, 'file', file)}
-                onClick={(e) => {
-                  if (isSelectionMode || e.ctrlKey || e.metaKey) {
-                    toggleFileSelection(file.id, e);
-                  }
-                }}
-              >
-                <div 
-                  className={`absolute top-2 left-2 z-10 transition-opacity ${
-                    isSelectionMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  }`}
-                >
-                  <SelectCheckbox 
-                    checked={isSelected} 
-                    onChange={(e) => toggleFileSelection(file.id, e)} 
-                  />
+          {filteredFiles.map((file) => (
+            <div
+              key={`file-${file.id}`}
+              className="card p-4 hover:border-blue-500/50 transition-all group relative"
+              onContextMenu={(e) => handleContextMenu(e, 'file', file)}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="relative w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
+                  {getFileIcon(file.mime_type)}
+                  {file.is_public && (
+                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                      <LinkIcon className="w-2.5 h-2.5 text-white" />
+                    </div>
+                  )}
                 </div>
-
-                <div className="flex items-center justify-between mb-3">
-                  <div className="relative w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
-                    {getFileIcon(file.mime_type)}
-                    {file.is_public && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                        <LinkIcon className="w-2.5 h-2.5 text-white" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'file', file); }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
-                    >
-                      <MoreVertical className="w-4 h-4 text-gray-400" />
-                    </button>
-                  </div>
+                <div className="relative">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleContextMenu(e, 'file', file); }}
+                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-700 transition-all"
+                  >
+                    <MoreVertical className="w-4 h-4 text-gray-400" />
+                  </button>
                 </div>
-                <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
-                <p className="text-xs text-gray-500 mt-1">{formatBytes(file.size)}</p>
-                {file.is_public && (
-                  <span className="badge badge-success text-xs mt-2 inline-block">แชร์แล้ว</span>
-                )}
               </div>
-            );
-          })}
+              <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
+              <p className="text-xs text-gray-500 mt-1">{formatBytes(file.size)}</p>
+            </div>
+          ))}
         </div>
       ) : (
         /* List View */
@@ -1561,18 +1249,6 @@ export default function FilesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th className="w-12">
-                  <button
-                    onClick={totalSelected === filteredFiles.length + filteredFolders.length ? deselectAll : selectAll}
-                    className="w-5 h-5 rounded border-2 flex items-center justify-center transition-all border-gray-500 hover:border-blue-400"
-                  >
-                    {totalSelected === filteredFiles.length + filteredFolders.length && totalSelected > 0 ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-blue-400" />
-                    ) : hasSelection ? (
-                      <div className="w-2 h-2 bg-blue-400 rounded-sm"></div>
-                    ) : null}
-                  </button>
-                </th>
                 <th>ชื่อ</th>
                 <th>ขนาด</th>
                 <th>วันที่สร้าง</th>
@@ -1582,164 +1258,125 @@ export default function FilesPage() {
             </thead>
             <tbody>
               {/* Folders */}
-              {filteredFolders.map((folder) => {
-                const isSelected = selectedFolders.has(folder.id);
-                return (
-                  <tr
-                    key={`folder-${folder.id}`}
-                    className={`cursor-pointer ${isSelected ? 'bg-blue-500/10' : ''}`}
-                    onDoubleClick={() => navigateToFolder(folder)}
-                    onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
-                  >
-                    <td>
-                      <SelectCheckbox 
-                        checked={isSelected} 
-                        onChange={(e) => toggleFolderSelection(folder.id, e)} 
-                      />
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <Folder className="w-5 h-5 text-yellow-400" />
-                          {folder.is_public && (
-                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                          )}
-                        </div>
-                        <span className="text-white">{folder.name}</span>
-                      </div>
-                    </td>
-                    <td className="text-gray-400">-</td>
-                    <td className="text-gray-400">{formatDate(folder.created_at)}</td>
-                    <td>
-                      {folder.is_public ? (
-                        <span className="badge badge-success flex items-center gap-1 w-fit">
-                          <LinkIcon className="w-3 h-3" />
-                          แชร์แล้ว
-                        </span>
-                      ) : (
-                        <span className="badge badge-secondary">ส่วนตัว</span>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openMoveModal('folder', folder); }}
-                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                          title="ย้าย"
-                        >
-                          <Move className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleShareFolder(folder.id, folder.is_public); }}
-                          className={`p-2 hover:bg-gray-700 rounded ${folder.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
-                          title={folder.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
-                        {folder.is_public && folder.public_url && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleCopyShareLink(folder.public_url!, 'folder'); }}
-                            className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                            title="คัดลอกลิงก์"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}
-                          className="p-2 hover:bg-red-500/20 rounded text-red-400"
-                          title="ลบ"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredFolders.map((folder) => (
+                <tr
+                  key={`folder-${folder.id}`}
+                  className="cursor-pointer"
+                  onDoubleClick={() => navigateToFolder(folder)}
+                  onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
+                >
+                  <td>
+                    <div className="flex items-center gap-3">
+                      <Folder className="w-5 h-5 text-yellow-400" />
+                      <span className="text-white">{folder.name}</span>
+                    </div>
+                  </td>
+                  <td className="text-gray-400">-</td>
+                  <td className="text-gray-400">{formatDate(folder.created_at)}</td>
+                  <td>
+                    {folder.is_public ? (
+                      <span className="badge badge-success">แชร์แล้ว</span>
+                    ) : (
+                      <span className="badge badge-secondary">ส่วนตัว</span>
+                    )}
+                  </td>
+                  <td className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRenameFolder(folder.id, folder.name); }}
+                        className="p-2 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300"
+                        title="เปลี่ยนชื่อ"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openMoveModal('folder', folder); }}
+                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                        title="ย้าย"
+                      >
+                        <Move className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleShareFolder(folder.id, folder.is_public); }}
+                        className={`p-2 hover:bg-gray-700 rounded ${folder.is_public ? 'text-green-400' : 'text-gray-400'}`}
+                        title={folder.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}
+                        className="p-2 hover:bg-red-500/20 rounded text-red-400"
+                        title="ลบ"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
 
               {/* Files */}
-              {filteredFiles.map((file) => {
-                const isSelected = selectedFiles.has(file.id);
-                return (
-                  <tr 
-                    key={`file-${file.id}`}
-                    className={isSelected ? 'bg-blue-500/10' : ''}
-                    onContextMenu={(e) => handleContextMenu(e, 'file', file)}
-                  >
-                    <td>
-                      <SelectCheckbox 
-                        checked={isSelected} 
-                        onChange={(e) => toggleFileSelection(file.id, e)} 
-                      />
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          {getFileIcon(file.mime_type)}
-                          {file.is_public && (
-                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                          )}
-                        </div>
-                        <span className="text-white truncate max-w-xs">{file.original_name}</span>
-                      </div>
-                    </td>
-                    <td className="text-gray-400">{formatBytes(file.size)}</td>
-                    <td className="text-gray-400">{formatDate(file.created_at)}</td>
-                    <td>
-                      {file.is_public ? (
-                        <span className="badge badge-success flex items-center gap-1 w-fit">
-                          <LinkIcon className="w-3 h-3" />
-                          แชร์แล้ว
-                        </span>
-                      ) : (
-                        <span className="badge badge-info">ส่วนตัว</span>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleDownload(file.id)}
-                          className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                          title="ดาวน์โหลด"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openMoveModal('file', file)}
-                          className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                          title="ย้าย"
-                        >
-                          <Move className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleShareFile(file.id, file.is_public)}
-                          className={`p-2 hover:bg-gray-700 rounded ${file.is_public ? 'text-green-400' : 'text-gray-400'} hover:text-white`}
-                          title={file.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
-                        {file.is_public && file.public_url && (
-                          <button
-                            onClick={() => handleCopyShareLink(file.public_url!, 'file')}
-                            className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
-                            title="คัดลอกลิงก์"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteFile(file.id, file.original_name)}
-                          className="p-2 hover:bg-red-500/20 rounded text-red-400"
-                          title="ลบ"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredFiles.map((file) => (
+                <tr 
+                  key={`file-${file.id}`}
+                  onContextMenu={(e) => handleContextMenu(e, 'file', file)}
+                >
+                  <td>
+                    <div className="flex items-center gap-3">
+                      {getFileIcon(file.mime_type)}
+                      <span className="text-white truncate max-w-xs">{file.original_name}</span>
+                    </div>
+                  </td>
+                  <td className="text-gray-400">{formatBytes(file.size)}</td>
+                  <td className="text-gray-400">{formatDate(file.created_at)}</td>
+                  <td>
+                    {file.is_public ? (
+                      <span className="badge badge-success">แชร์แล้ว</span>
+                    ) : (
+                      <span className="badge badge-info">ส่วนตัว</span>
+                    )}
+                  </td>
+                  <td className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => handleDownload(file.id)}
+                        className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                        title="ดาวน์โหลด"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleRenameFile(file.id, file.original_name)}
+                        className="p-2 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300"
+                        title="เปลี่ยนชื่อ"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => openMoveModal('file', file)}
+                        className="p-2 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                        title="ย้าย"
+                      >
+                        <Move className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleShareFile(file.id, file.is_public)}
+                        className={`p-2 hover:bg-gray-700 rounded ${file.is_public ? 'text-green-400' : 'text-gray-400'}`}
+                        title={file.is_public ? 'ยกเลิกแชร์' : 'แชร์'}
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteFile(file.id, file.original_name)}
+                        className="p-2 hover:bg-red-500/20 rounded text-red-400"
+                        title="ลบ"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1761,14 +1398,10 @@ export default function FilesPage() {
                 <Download className="w-4 h-4" /> ดาวน์โหลด
               </button>
               <button
-                onClick={() => { toggleFileSelection((contextMenu.item as FileItem).id); setContextMenu(null); }}
+                onClick={() => { handleRenameFile((contextMenu.item as FileItem).id, (contextMenu.item as FileItem).original_name); setContextMenu(null); }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
-                {selectedFiles.has((contextMenu.item as FileItem).id) ? (
-                  <><CheckSquare className="w-4 h-4" /> ยกเลิกการเลือก</>
-                ) : (
-                  <><Square className="w-4 h-4" /> เลือก</>
-                )}
+                <Pencil className="w-4 h-4" /> เปลี่ยนชื่อ
               </button>
               <button
                 onClick={() => { openMoveModal('file', contextMenu.item as FileItem); setContextMenu(null); }}
@@ -1783,21 +1416,12 @@ export default function FilesPage() {
                 <Share2 className="w-4 h-4" /> {(contextMenu.item as FileItem).is_public ? 'ยกเลิกแชร์' : 'แชร์'}
               </button>
               {(contextMenu.item as FileItem).is_public && (contextMenu.item as FileItem).public_url && (
-                <>
-                  <button
-                    onClick={() => { handleCopyShareLink((contextMenu.item as FileItem).public_url!, 'file'); setContextMenu(null); }}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                  >
-                    <Copy className="w-4 h-4" /> คัดลอกลิงก์แชร์
-                  </button>
-                  <a
-                    href={`/share/${(contextMenu.item as FileItem).public_url}`}
-                    target="_blank"
-                    className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                  >
-                    <ExternalLink className="w-4 h-4" /> เปิดลิงก์แชร์
-                  </a>
-                </>
+                <button
+                  onClick={() => { handleCopyShareLink((contextMenu.item as FileItem).public_url!, 'file'); setContextMenu(null); }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                >
+                  <Copy className="w-4 h-4" /> คัดลอกลิงก์แชร์
+                </button>
               )}
               <hr className="my-2 border-gray-700" />
               <button
@@ -1816,14 +1440,10 @@ export default function FilesPage() {
                 <Folder className="w-4 h-4" /> เปิดโฟลเดอร์
               </button>
               <button
-                onClick={() => { toggleFolderSelection((contextMenu.item as FolderItem).id); setContextMenu(null); }}
+                onClick={() => { handleRenameFolder((contextMenu.item as FolderItem).id, (contextMenu.item as FolderItem).name); setContextMenu(null); }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
               >
-                {selectedFolders.has((contextMenu.item as FolderItem).id) ? (
-                  <><CheckSquare className="w-4 h-4" /> ยกเลิกการเลือก</>
-                ) : (
-                  <><Square className="w-4 h-4" /> เลือก</>
-                )}
+                <Pencil className="w-4 h-4" /> เปลี่ยนชื่อ
               </button>
               <button
                 onClick={() => { openMoveModal('folder', contextMenu.item as FolderItem); setContextMenu(null); }}
@@ -1838,21 +1458,12 @@ export default function FilesPage() {
                 <Share2 className="w-4 h-4" /> {(contextMenu.item as FolderItem).is_public ? 'ยกเลิกแชร์' : 'แชร์โฟลเดอร์'}
               </button>
               {(contextMenu.item as FolderItem).is_public && (contextMenu.item as FolderItem).public_url && (
-                <>
-                  <button
-                    onClick={() => { handleCopyShareLink((contextMenu.item as FolderItem).public_url!, 'folder'); setContextMenu(null); }}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                  >
-                    <Copy className="w-4 h-4" /> คัดลอกลิงก์แชร์
-                  </button>
-                  <a
-                    href={`/share/${(contextMenu.item as FolderItem).public_url}`}
-                    target="_blank"
-                    className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                  >
-                    <ExternalLink className="w-4 h-4" /> เปิดลิงก์แชร์
-                  </a>
-                </>
+                <button
+                  onClick={() => { handleCopyShareLink((contextMenu.item as FolderItem).public_url!, 'folder'); setContextMenu(null); }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                >
+                  <Copy className="w-4 h-4" /> คัดลอกลิงก์แชร์
+                </button>
               )}
               <hr className="my-2 border-gray-700" />
               <button
@@ -1866,7 +1477,7 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Single Move Modal */}
+      {/* Move Modal */}
       {showMoveModal && moveItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass rounded-2xl w-full max-w-md">
@@ -1914,18 +1525,11 @@ export default function FilesPage() {
                 >
                   <Folder className="w-5 h-5 text-yellow-400" />
                   <span className="truncate">{folder.name}</span>
-                  <span className="text-xs text-gray-500 truncate ml-auto mr-2">
-                    {folder.path}
-                  </span>
                   {selectedTargetFolder === folder.id && (
-                    <CheckCircle className="w-4 h-4 text-blue-400" />
+                    <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
                   )}
                 </button>
               ))}
-
-              {getAvailableFolders().length === 0 && (
-                <p className="text-gray-500 text-center py-4">ไม่มีโฟลเดอร์อื่น</p>
-              )}
             </div>
 
             <div className="p-6 border-t border-gray-700/50 flex gap-3">
@@ -1953,90 +1557,6 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Bulk Move Modal */}
-      {showBulkMoveModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass rounded-2xl w-full max-w-md">
-            <div className="p-6 border-b border-gray-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Move className="w-6 h-6 text-blue-400" />
-                ย้ายหลายรายการ
-              </h2>
-              <p className="text-sm text-gray-400 mt-1">
-                เลือกแล้ว {selectedFiles.size} ไฟล์, {selectedFolders.size} โฟลเดอร์
-              </p>
-            </div>
-
-            <div className="p-6 max-h-80 overflow-y-auto">
-              <p className="text-sm text-gray-400 mb-3">เลือกโฟลเดอร์ปลายทาง:</p>
-              
-              <button
-                onClick={() => setSelectedTargetFolder(null)}
-                className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
-                  selectedTargetFolder === null 
-                    ? 'bg-blue-500/20 border border-blue-500/50' 
-                    : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
-                }`}
-              >
-                <Home className="w-5 h-5 text-blue-400" />
-                <span>หน้าแรก (Root)</span>
-                {selectedTargetFolder === null && (
-                  <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
-                )}
-              </button>
-
-              {getAvailableFoldersForBulkMove().map((folder) => (
-                <button
-                  key={folder.id}
-                  onClick={() => setSelectedTargetFolder(folder.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
-                    selectedTargetFolder === folder.id 
-                      ? 'bg-blue-500/20 border border-blue-500/50' 
-                      : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
-                  }`}
-                  style={{ paddingLeft: `${((folder as any).depth || 0) * 16 + 12}px` }}
-                >
-                  <Folder className="w-5 h-5 text-yellow-400" />
-                  <span className="truncate">{folder.name}</span>
-                  <span className="text-xs text-gray-500 truncate ml-auto mr-2">
-                    {folder.path}
-                  </span>
-                  {selectedTargetFolder === folder.id && (
-                    <CheckCircle className="w-4 h-4 text-blue-400" />
-                  )}
-                </button>
-              ))}
-
-              {getAvailableFoldersForBulkMove().length === 0 && (
-                <p className="text-gray-500 text-center py-4">ไม่มีโฟลเดอร์อื่น</p>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-gray-700/50 flex gap-3">
-              <button
-                onClick={() => setShowBulkMoveModal(false)}
-                className="btn-secondary flex-1"
-                disabled={bulkMoveLoading}
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleBulkMove}
-                className="btn-primary flex-1 flex items-center justify-center gap-2"
-                disabled={bulkMoveLoading}
-              >
-                {bulkMoveLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="w-4 h-4" />
-                )}
-                ย้าย {totalSelected} รายการ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -2046,43 +1566,11 @@ export default function FilesPage() {
                 <div>
                   <h2 className="text-xl font-bold text-white flex items-center gap-2">
                     <Upload className="w-6 h-6 text-blue-400" />
-                    {uploadFiles.some(f => f.relativePath && f.relativePath.includes('/')) 
-                      ? 'อัพโหลดโฟลเดอร์' 
-                      : 'อัพโหลดไฟล์'
-                    }
+                    อัพโหลดไฟล์
                   </h2>
-                  <div className="text-sm text-gray-400 mt-1 space-y-1">
-                    {/* แสดงชื่อโฟลเดอร์/ไฟล์ที่อัพโหลด */}
-                    {(() => {
-                      const hasRelativePath = uploadFiles.some(f => f.relativePath && f.relativePath.includes('/'));
-                      if (hasRelativePath) {
-                        const firstFileWithPath = uploadFiles.find(f => f.relativePath && f.relativePath.includes('/'));
-                        const folderName = firstFileWithPath?.relativePath.split('/')[0] || '';
-                        return (
-                          <p>
-                            <span className="text-yellow-400">📁 {folderName}/</span>
-                            <span className="text-gray-500 ml-2">({uploadFiles.length} ไฟล์)</span>
-                          </p>
-                        );
-                      } else if (uploadFiles.length === 1) {
-                        return (
-                          <p>
-                            <span className="text-blue-400">📄 {uploadFiles[0]?.name}</span>
-                          </p>
-                        );
-                      } else {
-                        return (
-                          <p>
-                            <span className="text-blue-400">📄 {uploadFiles.length} ไฟล์</span>
-                          </p>
-                        );
-                      }
-                    })()}
-                    {/* แสดง path ปลายทาง */}
-                    <p>
-                      ไปยัง: <span className="text-green-400">{getCurrentPathDisplay()}</span>
-                    </p>
-                  </div>
+                  <p className="text-sm text-gray-400 mt-1">
+                    ไปยัง: <span className="text-green-400">{getCurrentPathDisplay()}</span>
+                  </p>
                 </div>
                 <button
                   onClick={closeUploadModal}
@@ -2100,11 +1588,6 @@ export default function FilesPage() {
                       <span className="text-green-400 font-bold">
                         {formatSpeed(getTotalUploadStats().avgSpeed)}
                       </span>
-                      <span className="text-gray-500">•</span>
-                      <span className="text-gray-400">
-                        เหลือ {formatTimeRemaining(getTotalUploadStats().timeRemaining)}
-                      </span>
-                      <span className="text-gray-500">•</span>
                       <span className="text-blue-400 font-bold">{getTotalUploadStats().progress}%</span>
                     </div>
                   </div>
@@ -2126,88 +1609,78 @@ export default function FilesPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                {uploadFiles.map((uploadFile) => (
-                  <div 
-                    key={uploadFile.id}
-                    className={`p-3 rounded-lg border transition-all ${
-                      uploadFile.status === 'completed' 
-                        ? 'bg-green-500/10 border-green-500/30'
-                        : uploadFile.status === 'error'
-                        ? 'bg-red-500/10 border-red-500/30'
-                        : uploadFile.status === 'uploading'
-                        ? 'bg-blue-500/10 border-blue-500/30'
-                        : 'bg-gray-800/50 border-gray-700/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Icon */}
-                      <div className="flex-shrink-0">
-                        {uploadFile.status === 'completed' ? (
-                          <CheckCircle className="w-5 h-5 text-green-400" />
-                        ) : uploadFile.status === 'error' ? (
-                          <AlertCircle className="w-5 h-5 text-red-400" />
-                        ) : uploadFile.status === 'uploading' ? (
-                          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-                        ) : (
-                          <FileIcon className="w-5 h-5 text-gray-400" />
-                        )}
-                      </div>
-
-                      {/* File Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm text-white truncate">{uploadFile.name}</p>
-                          <span className="text-xs text-gray-500 flex-shrink-0">{formatBytes(uploadFile.size)}</span>
+                  {uploadFiles.map((uploadFile) => (
+                    <div 
+                      key={uploadFile.id}
+                      className={`p-3 rounded-lg border transition-all ${
+                        uploadFile.status === 'completed' 
+                          ? 'bg-green-500/10 border-green-500/30'
+                          : uploadFile.status === 'error'
+                          ? 'bg-red-500/10 border-red-500/30'
+                          : uploadFile.status === 'uploading'
+                          ? 'bg-blue-500/10 border-blue-500/30'
+                          : 'bg-gray-800/50 border-gray-700/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0">
+                          {uploadFile.status === 'completed' ? (
+                            <CheckCircle className="w-5 h-5 text-green-400" />
+                          ) : uploadFile.status === 'error' ? (
+                            <AlertCircle className="w-5 h-5 text-red-400" />
+                          ) : uploadFile.status === 'uploading' ? (
+                            <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                          ) : (
+                            <FileIcon className="w-5 h-5 text-gray-400" />
+                          )}
                         </div>
-                        
-                        {/* Relative Path */}
-                        {uploadFile.relativePath && (
-                          <p className="text-xs text-blue-400 truncate">📁 {uploadFile.relativePath}</p>
-                        )}
-                        
-                        {/* Error Message */}
-                        {uploadFile.status === 'error' && uploadFile.error && (
-                          <p className="text-xs text-red-400 mt-1">{uploadFile.error}</p>
-                        )}
 
-                        {/* Progress Bar */}
-                        {(uploadFile.status === 'uploading' || uploadFile.status === 'completed') && (
-                          <div className="mt-2 h-1.5 rounded-full bg-gray-700 overflow-hidden">
-                            <div 
-                              className={`h-full transition-all duration-300 ${
-                                uploadFile.status === 'completed' 
-                                  ? 'bg-green-500' 
-                                  : 'bg-blue-500'
-                              }`}
-                              style={{ width: `${uploadFile.progress}%` }}
-                            />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm text-white truncate">{uploadFile.name}</p>
+                            <span className="text-xs text-gray-500 flex-shrink-0">{formatBytes(uploadFile.size)}</span>
                           </div>
-                        )}
-                      </div>
+                          
+                          {uploadFile.status === 'error' && uploadFile.error && (
+                            <p className="text-xs text-red-400 mt-1">{uploadFile.error}</p>
+                          )}
 
-                      {/* Cancel/Remove Button */}
-                      <div className="flex-shrink-0">
-                        {uploadFile.status === 'uploading' ? (
-                          <button
-                            onClick={() => cancelUpload(uploadFile.id)}
-                            className="p-1.5 hover:bg-red-500/20 rounded text-red-400"
-                            title="ยกเลิก"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => removeFromQueue(uploadFile.id)}
-                            className="p-1.5 hover:bg-gray-700 rounded text-gray-400"
-                            title="ลบออกจากคิว"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
+                          {(uploadFile.status === 'uploading' || uploadFile.status === 'completed') && (
+                            <div className="mt-2 h-1.5 rounded-full bg-gray-700 overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-300 ${
+                                  uploadFile.status === 'completed' 
+                                    ? 'bg-green-500' 
+                                    : 'bg-blue-500'
+                                }`}
+                                style={{ width: `${uploadFile.progress}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-shrink-0">
+                          {uploadFile.status === 'uploading' ? (
+                            <button
+                              onClick={() => cancelUpload(uploadFile.id)}
+                              className="p-1.5 hover:bg-red-500/20 rounded text-red-400"
+                              title="ยกเลิก"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => removeFromQueue(uploadFile.id)}
+                              className="p-1.5 hover:bg-gray-700 rounded text-gray-400"
+                              title="ลบออกจากคิว"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
                 </div>
               )}
             </div>

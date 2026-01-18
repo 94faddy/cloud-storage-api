@@ -738,6 +738,183 @@ export async function moveFolder(
   return updatedFolders[0];
 }
 
+// ========================================
+// 🚀 Rename File Function
+// ========================================
+export async function renameFile(
+  fileId: number,
+  userId: number,
+  newName: string
+): Promise<{ file: File; oldName: string; newName: string }> {
+  // Validate new name
+  if (!newName || newName.trim() === '') {
+    throw new Error('File name cannot be empty');
+  }
+
+  // Get current file
+  const files = await query<File[]>(
+    'SELECT * FROM files WHERE id = ? AND user_id = ?',
+    [fileId, userId]
+  );
+
+  if (!files[0]) {
+    throw new Error('File not found');
+  }
+
+  const file = files[0];
+  const oldName = file.original_name;
+  const trimmedName = newName.trim();
+
+  // If name is the same, no need to do anything
+  if (oldName === trimmedName) {
+    return { file, oldName, newName: trimmedName };
+  }
+
+  // Validate filename characters (allow Thai, alphanumeric, spaces, dots, underscores, hyphens)
+  if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(trimmedName)) {
+    throw new Error('Invalid file name. Only letters, numbers, Thai characters, spaces, dots, underscores and hyphens are allowed.');
+  }
+
+  // Check name length
+  if (trimmedName.length > 255) {
+    throw new Error('File name too long (max 255 characters)');
+  }
+
+  // Check if file with same name already exists in the same folder
+  const existing = await query<File[]>(
+    'SELECT * FROM files WHERE user_id = ? AND folder_id <=> ? AND original_name = ? AND id != ?',
+    [userId, file.folder_id, trimmedName, fileId]
+  );
+
+  if (existing[0]) {
+    throw new Error('A file with this name already exists in the same location');
+  }
+
+  // Update database - only change original_name, keep internal name (UUID) the same
+  await query(
+    'UPDATE files SET original_name = ?, updated_at = NOW() WHERE id = ?',
+    [trimmedName, fileId]
+  );
+
+  const updatedFiles = await query<File[]>('SELECT * FROM files WHERE id = ?', [fileId]);
+  return { file: updatedFiles[0], oldName, newName: trimmedName };
+}
+
+// ========================================
+// 🚀 Rename Folder Function
+// ========================================
+export async function renameFolder(
+  folderId: number,
+  userId: number,
+  newName: string
+): Promise<{ folder: Folder; oldName: string; newName: string }> {
+  // Validate new name
+  if (!newName || newName.trim() === '') {
+    throw new Error('Folder name cannot be empty');
+  }
+
+  const trimmedName = newName.trim();
+
+  // Validate folder name characters
+  if (!/^[a-zA-Z0-9ก-๙_\-\s\.]+$/.test(trimmedName)) {
+    throw new Error('Invalid folder name. Only letters, numbers, Thai characters, spaces, dots, underscores and hyphens are allowed.');
+  }
+
+  // Check name length
+  if (trimmedName.length > 255) {
+    throw new Error('Folder name too long (max 255 characters)');
+  }
+
+  // Get current folder
+  const folders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+    [folderId, userId]
+  );
+
+  if (!folders[0]) {
+    throw new Error('Folder not found');
+  }
+
+  const folder = folders[0];
+  const oldPath = folder.path;
+  const oldName = folder.name;
+
+  // If name is the same, no need to do anything
+  if (oldName === trimmedName) {
+    return { folder, oldName, newName: trimmedName };
+  }
+
+  // Calculate new path
+  let newPath: string;
+  if (folder.parent_id === null) {
+    // Root level folder
+    newPath = trimmedName;
+  } else {
+    // Nested folder - replace only the last part of the path
+    const pathParts = oldPath.split('/');
+    pathParts[pathParts.length - 1] = trimmedName;
+    newPath = pathParts.join('/');
+  }
+
+  // Check if folder with same name already exists in the same parent
+  const existing = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND parent_id <=> ? AND name = ? AND id != ?',
+    [userId, folder.parent_id, trimmedName, folderId]
+  );
+
+  if (existing[0]) {
+    throw new Error('A folder with this name already exists in the same location');
+  }
+
+  // Get all child folders before updating
+  const childFolders = await query<Folder[]>(
+    'SELECT * FROM folders WHERE user_id = ? AND path LIKE ?',
+    [userId, `${oldPath}/%`]
+  );
+
+  // Rename physical directory
+  const userPath = getUserStoragePath(userId);
+  const oldPhysicalPath = path.join(userPath, oldPath);
+  const newPhysicalPath = path.join(userPath, newPath);
+
+  try {
+    await fs.rename(oldPhysicalPath, newPhysicalPath);
+  } catch (error: any) {
+    // If directory doesn't exist, just update the database
+    if (error.code !== 'ENOENT') {
+      console.error('Error renaming physical directory:', error);
+      throw new Error('Failed to rename folder on disk');
+    }
+  }
+
+  // Update the folder's name and path in database
+  await query(
+    'UPDATE folders SET name = ?, path = ?, updated_at = NOW() WHERE id = ?',
+    [trimmedName, newPath, folderId]
+  );
+
+  // Update all child folders' paths
+  for (const child of childFolders) {
+    if (child.path) {
+      const childNewPath = child.path.replace(oldPath, newPath);
+      await query(
+        'UPDATE folders SET path = ?, updated_at = NOW() WHERE id = ?',
+        [childNewPath, child.id]
+      );
+    }
+  }
+
+  // Update file paths in database
+  await query(
+    `UPDATE files SET path = REPLACE(path, ?, ?), updated_at = NOW() 
+     WHERE user_id = ? AND path LIKE ?`,
+    [`user_${userId}/${oldPath}`, `user_${userId}/${newPath}`, userId, `user_${userId}/${oldPath}%`]
+  );
+
+  const updatedFolders = await query<Folder[]>('SELECT * FROM folders WHERE id = ?', [folderId]);
+  return { folder: updatedFolders[0], oldName, newName: trimmedName };
+}
+
 export function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return '0 Bytes';
 

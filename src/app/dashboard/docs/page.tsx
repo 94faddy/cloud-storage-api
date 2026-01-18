@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Book, Copy, ChevronDown, ChevronRight, Code, Upload, Download, Trash2, FolderPlus, List, Key, CheckCircle, AlertCircle, Globe, Move, FolderInput, HardDrive } from 'lucide-react';
+import { Book, Copy, ChevronDown, ChevronRight, Code, Upload, Download, Trash2, FolderPlus, List, Key, CheckCircle, AlertCircle, Globe, Move, FolderInput, HardDrive, Edit, Pencil } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 interface Endpoint {
@@ -146,43 +146,24 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
             message: '1 file(s) uploaded successfully'
           },
           example: `// Node.js - Upload single file
-        const FormData = require('form-data');
-        const fs = require('fs');
+const FormData = require('form-data');
+const fs = require('fs');
 
-        const form = new FormData();
-        form.append('files', fs.createReadStream('./photo.jpg'));
-        form.append('folderId', '1'); // Optional
+const form = new FormData();
+form.append('files', fs.createReadStream('./photo.jpg'));
+form.append('folderId', '1'); // Optional
 
-        fetch('${apiUrl}/api/public/upload', {
-          method: 'POST',
-          headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          body: form
-        });
+fetch('${apiUrl}/api/public/upload', {
+  method: 'POST',
+  headers: { 'X-API-Key': 'cv_your_api_key_here' },
+  body: form
+});
 
-        // Node.js - Upload with folder structure
-        const form2 = new FormData();
-        form2.append('folderId', '1'); // Optional: target folder
-        form2.append('relativePaths', 'MyFolder/SubFolder/image.jpg');
-        form2.append('files', fs.createReadStream('./image.jpg'));
-
-        fetch('${apiUrl}/api/public/upload', {
-          method: 'POST',
-          headers: { 'X-API-Key': 'cv_your_api_key_here' },
-          body: form2
-        });
-
-        // cURL - Upload single file
-        curl -X POST ${apiUrl}/api/public/upload \\
-          -H "X-API-Key: cv_your_api_key_here" \\
-          -F "files=@./photo.jpg" \\
-          -F "folderId=1"
-
-        // cURL - Upload with folder structure
-        curl -X POST ${apiUrl}/api/public/upload \\
-          -H "X-API-Key: cv_your_api_key_here" \\
-          -F "folderId=1" \\
-          -F "relativePaths=MyFolder/SubFolder/photo.jpg" \\
-          -F "files=@./photo.jpg"`
+// cURL - Upload single file
+curl -X POST ${apiUrl}/api/public/upload \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -F "files=@./photo.jpg" \\
+  -F "folderId=1"`
         },
         {
           method: 'GET',
@@ -196,24 +177,8 @@ fetch('${apiUrl}/api/public/download/123', {
   headers: { 'X-API-Key': 'cv_your_api_key_here' }
 });
 
-// Download by Public UUID (ไม่ต้องใช้ API Key - สำหรับไฟล์ที่ share แล้ว)
-fetch('${apiUrl}/api/public/download/abc123-uuid-here');
-
-// Resume Download (รองรับ Range header)
-fetch('${apiUrl}/api/public/download/123', {
-  headers: { 
-    'X-API-Key': 'cv_your_api_key_here',
-    'Range': 'bytes=1000-'
-  }
-});
-
 // cURL
 curl -H "X-API-Key: cv_your_api_key_here" \\
-  ${apiUrl}/api/public/download/123 -o file.jpg
-
-# Resume download
-curl -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Range: bytes=1000-" \\
   ${apiUrl}/api/public/download/123 -o file.jpg`
         },
         {
@@ -258,6 +223,74 @@ fetch('${apiUrl}/api/public/list?folderId=1', {
 // cURL
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/list?folderId=1"`
+        },
+        {
+          method: 'POST',
+          path: '/api/public/edit',
+          description: '🆕 แก้ไขไฟล์หรือโฟลเดอร์ (รองรับ: rename, รองรับ action อื่นๆ ในอนาคต)',
+          auth: 'API Key',
+          headers: { 
+            'X-API-Key': 'cv_your_api_key_here',
+            'Content-Type': 'application/json'
+          },
+          body: {
+            action: 'string ("rename" - รองรับ action อื่นๆ ในอนาคต)',
+            type: 'string ("file" หรือ "folder")',
+            id: 'number (ID ของไฟล์หรือโฟลเดอร์)',
+            newName: 'string (ชื่อใหม่ - สำหรับ action rename)'
+          },
+          response: {
+            success: true,
+            data: {
+              id: 1,
+              original_name: 'new-photo-name.jpg',
+              oldName: 'old-photo.jpg',
+              action: 'rename',
+              type: 'file'
+            },
+            message: 'File renamed successfully'
+          },
+          example: `// Rename file
+fetch('${apiUrl}/api/public/edit', {
+  method: 'POST',
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    action: 'rename',
+    type: 'file',
+    id: 123,
+    newName: 'my-new-filename.jpg'
+  })
+});
+
+// Rename folder
+fetch('${apiUrl}/api/public/edit', {
+  method: 'POST',
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    action: 'rename',
+    type: 'folder',
+    id: 456,
+    newName: 'My New Folder Name'
+  })
+});
+
+// cURL - Rename file
+curl -X POST ${apiUrl}/api/public/edit \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "file", "id": 123, "newName": "new-name.jpg"}'
+
+// cURL - Rename folder
+curl -X POST ${apiUrl}/api/public/edit \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "folder", "id": 456, "newName": "New Folder"}'`
         },
         {
           method: 'DELETE',
@@ -316,30 +349,11 @@ fetch('${apiUrl}/api/public/move', {
   })
 });
 
-// Move file to root
-fetch('${apiUrl}/api/public/move', {
-  method: 'POST',
-  headers: { 
-    'X-API-Key': 'cv_your_api_key_here',
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    fileId: 123,
-    targetFolderId: null
-  })
-});
-
 // cURL
 curl -X POST ${apiUrl}/api/public/move \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": 456}'
-
-# Move to root
-curl -X POST ${apiUrl}/api/public/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": null}'`
+  -d '{"fileId": 123, "targetFolderId": 456}'`
         },
         {
           method: 'POST',
@@ -377,19 +391,6 @@ fetch('${apiUrl}/api/public/folders/create', {
   })
 });
 
-// Create subfolder
-fetch('${apiUrl}/api/public/folders/create', {
-  method: 'POST',
-  headers: { 
-    'X-API-Key': 'cv_your_api_key_here',
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    name: 'Subfolder',
-    parentId: 1
-  })
-});
-
 // cURL
 curl -X POST ${apiUrl}/api/public/folders/create \\
   -H "X-API-Key: cv_your_api_key_here" \\
@@ -399,7 +400,7 @@ curl -X POST ${apiUrl}/api/public/folders/create \\
         {
           method: 'POST',
           path: '/api/public/folders/move',
-          description: 'ย้ายโฟลเดอร์ไปยังโฟลเดอร์อื่น (รวมไฟล์และโฟลเดอร์ย่อยทั้งหมด)',
+          description: 'ย้ายโฟลเดอร์ไปยังโฟลเดอร์อื่น',
           auth: 'API Key',
           headers: { 
             'X-API-Key': 'cv_your_api_key_here',
@@ -433,30 +434,11 @@ fetch('${apiUrl}/api/public/folders/move', {
   })
 });
 
-// Move folder to root
-fetch('${apiUrl}/api/public/folders/move', {
-  method: 'POST',
-  headers: { 
-    'X-API-Key': 'cv_your_api_key_here',
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    folderId: 123,
-    targetFolderId: null
-  })
-});
-
 // cURL
 curl -X POST ${apiUrl}/api/public/folders/move \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -H "Content-Type: application/json" \\
-  -d '{"folderId": 123, "targetFolderId": 456}'
-
-# Move to root
-curl -X POST ${apiUrl}/api/public/folders/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"folderId": 123, "targetFolderId": null}'`
+  -d '{"folderId": 123, "targetFolderId": 456}'`
         },
         {
           method: 'DELETE',
@@ -608,8 +590,11 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
                           {endpoint.method}
                         </span>
                         <code className="text-sm font-mono">{endpoint.path}</code>
+                        {endpoint.description.includes('🆕') && (
+                          <span className="badge badge-success text-xs">NEW</span>
+                        )}
                         <span className="text-gray-400 text-sm hidden sm:inline">
-                          — {endpoint.description}
+                          — {endpoint.description.replace('🆕 ', '')}
                         </span>
                         <span className="ml-auto badge badge-warning text-xs">
                           {endpoint.auth}
@@ -619,7 +604,7 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
 
                     {activeEndpoint === `${key}-${idx}` && (
                       <div className="px-4 pb-4 space-y-4 bg-gray-900/50">
-                        <p className="text-gray-300 sm:hidden">{endpoint.description}</p>
+                        <p className="text-gray-300 sm:hidden">{endpoint.description.replace('🆕 ', '')}</p>
 
                         {endpoint.headers && (
                           <div>
@@ -727,6 +712,36 @@ async function listFiles(folderId = null) {
   return response.json();
 }
 
+// 🆕 Rename file
+async function renameFile(fileId, newName) {
+  const response = await fetch(\`\${BASE_URL}/api/public/edit\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      action: 'rename', 
+      type: 'file', 
+      id: fileId, 
+      newName 
+    })
+  });
+  return response.json();
+}
+
+// 🆕 Rename folder
+async function renameFolder(folderId, newName) {
+  const response = await fetch(\`\${BASE_URL}/api/public/edit\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      action: 'rename', 
+      type: 'folder', 
+      id: folderId, 
+      newName 
+    })
+  });
+  return response.json();
+}
+
 // Download file
 async function downloadFile(fileId, outputPath) {
   const fs = require('fs');
@@ -764,16 +779,6 @@ async function createFolder(name, parentId = null) {
   return response.json();
 }
 
-// Move folder
-async function moveFolder(folderId, targetFolderId = null) {
-  const response = await fetch(\`\${BASE_URL}/api/public/folders/move\`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folderId, targetFolderId })
-  });
-  return response.json();
-}
-
 // Delete folder
 async function deleteFolder(folderId) {
   const response = await fetch(\`\${BASE_URL}/api/public/folders/delete/\${folderId}\`, {
@@ -800,21 +805,33 @@ async function getStorageInfo() {
   return response.json();
 }
 
-// Upload file
-async function uploadFile(filePath, folderId = null) {
-  const FormData = require('form-data');
-  const fs = require('fs');
-  
-  const form = new FormData();
-  form.append('file', fs.createReadStream(filePath));
-  if (folderId) form.append('folderId', folderId.toString());
-  
-  const response = await fetch(\`\${BASE_URL}/api/public/upload\`, {
+// 🆕 Rename file
+async function renameFile(fileId, newName) {
+  const response = await fetch(\`\${BASE_URL}/api/public/edit\`, {
     method: 'POST',
-    headers: { ...headers },
-    body: form
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      action: 'rename', 
+      type: 'file', 
+      id: fileId, 
+      newName 
+    })
   });
-  
+  return response.json();
+}
+
+// 🆕 Rename folder
+async function renameFolder(folderId, newName) {
+  const response = await fetch(\`\${BASE_URL}/api/public/edit\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      action: 'rename', 
+      type: 'folder', 
+      id: folderId, 
+      newName 
+    })
+  });
   return response.json();
 }
 
@@ -828,17 +845,6 @@ async function listFiles(folderId = null) {
   return response.json();
 }
 
-// Download file
-async function downloadFile(fileId, outputPath) {
-  const fs = require('fs');
-  const response = await fetch(
-    \`\${BASE_URL}/api/public/download/\${fileId}\`, 
-    { headers }
-  );
-  const buffer = await response.arrayBuffer();
-  fs.writeFileSync(outputPath, Buffer.from(buffer));
-}
-
 // Delete file
 async function deleteFile(fileId) {
   const response = await fetch(
@@ -846,239 +852,7 @@ async function deleteFile(fileId) {
     { method: 'DELETE', headers }
   );
   return response.json();
-}
-
-// Move file
-async function moveFile(fileId, targetFolderId = null) {
-  const response = await fetch(\`\${BASE_URL}/api/public/move\`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId, targetFolderId })
-  });
-  return response.json();
-}
-
-// Create folder
-async function createFolder(name, parentId = null) {
-  const response = await fetch(\`\${BASE_URL}/api/public/folders/create\`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, parentId })
-  });
-  return response.json();
-}
-
-// Move folder
-async function moveFolder(folderId, targetFolderId = null) {
-  const response = await fetch(\`\${BASE_URL}/api/public/folders/move\`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folderId, targetFolderId })
-  });
-  return response.json();
-}
-
-// Delete folder
-async function deleteFolder(folderId) {
-  const response = await fetch(
-    \`\${BASE_URL}/api/public/folders/delete/\${folderId}\`, 
-    { method: 'DELETE', headers }
-  );
-  return response.json();
 }`}
-            </pre>
-          </div>
-
-          {/* Python Example */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-blue-400">🐍 Python</h3>
-              <button
-                onClick={() => copyToClipboard(`import requests
-
-API_KEY = 'cv_your_api_key_here'
-BASE_URL = '${apiUrl}'
-
-headers = {'X-API-Key': API_KEY}
-
-# Get storage info
-def get_storage_info():
-    response = requests.get(
-        f'{BASE_URL}/api/public/info',
-        headers=headers
-    )
-    return response.json()
-
-# Upload file
-def upload_file(file_path, folder_id=None):
-    with open(file_path, 'rb') as f:
-        files = {'file': f}
-        data = {'folderId': folder_id} if folder_id else {}
-        response = requests.post(
-            f'{BASE_URL}/api/public/upload',
-            headers=headers,
-            files=files,
-            data=data
-        )
-    return response.json()
-
-# List files
-def list_files(folder_id=None):
-    params = {'folderId': folder_id} if folder_id else {}
-    response = requests.get(
-        f'{BASE_URL}/api/public/list',
-        headers=headers,
-        params=params
-    )
-    return response.json()
-
-# Download file
-def download_file(file_id, output_path):
-    response = requests.get(
-        f'{BASE_URL}/api/public/download/{file_id}',
-        headers=headers
-    )
-    with open(output_path, 'wb') as f:
-        f.write(response.content)
-
-# Delete file
-def delete_file(file_id):
-    response = requests.delete(
-        f'{BASE_URL}/api/public/delete/{file_id}',
-        headers=headers
-    )
-    return response.json()
-
-# Move file
-def move_file(file_id, target_folder_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/move',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'fileId': file_id, 'targetFolderId': target_folder_id}
-    )
-    return response.json()
-
-# Create folder
-def create_folder(name, parent_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/folders/create',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'name': name, 'parentId': parent_id}
-    )
-    return response.json()
-
-# Move folder
-def move_folder(folder_id, target_folder_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/folders/move',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'folderId': folder_id, 'targetFolderId': target_folder_id}
-    )
-    return response.json()
-
-# Delete folder  
-def delete_folder(folder_id):
-    response = requests.delete(
-        f'{BASE_URL}/api/public/folders/delete/{folder_id}',
-        headers=headers
-    )
-    return response.json()`)}
-                className="text-xs text-blue-400 hover:text-indigo-300 flex items-center gap-1"
-              >
-                <Copy className="w-3 h-3" />
-                คัดลอก
-              </button>
-            </div>
-            <pre className="bg-gray-800 rounded-lg p-4 text-sm overflow-x-auto max-h-96">
-{`import requests
-
-API_KEY = 'cv_your_api_key_here'
-BASE_URL = '${apiUrl}'
-
-headers = {'X-API-Key': API_KEY}
-
-# Get storage info
-def get_storage_info():
-    response = requests.get(
-        f'{BASE_URL}/api/public/info',
-        headers=headers
-    )
-    return response.json()
-
-# Upload file
-def upload_file(file_path, folder_id=None):
-    with open(file_path, 'rb') as f:
-        files = {'file': f}
-        data = {'folderId': folder_id} if folder_id else {}
-        response = requests.post(
-            f'{BASE_URL}/api/public/upload',
-            headers=headers,
-            files=files,
-            data=data
-        )
-    return response.json()
-
-# List files
-def list_files(folder_id=None):
-    params = {'folderId': folder_id} if folder_id else {}
-    response = requests.get(
-        f'{BASE_URL}/api/public/list',
-        headers=headers,
-        params=params
-    )
-    return response.json()
-
-# Download file
-def download_file(file_id, output_path):
-    response = requests.get(
-        f'{BASE_URL}/api/public/download/{file_id}',
-        headers=headers
-    )
-    with open(output_path, 'wb') as f:
-        f.write(response.content)
-
-# Delete file
-def delete_file(file_id):
-    response = requests.delete(
-        f'{BASE_URL}/api/public/delete/{file_id}',
-        headers=headers
-    )
-    return response.json()
-
-# Move file
-def move_file(file_id, target_folder_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/move',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'fileId': file_id, 'targetFolderId': target_folder_id}
-    )
-    return response.json()
-
-# Create folder
-def create_folder(name, parent_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/folders/create',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'name': name, 'parentId': parent_id}
-    )
-    return response.json()
-
-# Move folder
-def move_folder(folder_id, target_folder_id=None):
-    response = requests.post(
-        f'{BASE_URL}/api/public/folders/move',
-        headers={**headers, 'Content-Type': 'application/json'},
-        json={'folderId': folder_id, 'targetFolderId': target_folder_id}
-    )
-    return response.json()
-
-# Delete folder  
-def delete_folder(folder_id):
-    response = requests.delete(
-        f'{BASE_URL}/api/public/folders/delete/{folder_id}',
-        headers=headers
-    )
-    return response.json()`}
             </pre>
           </div>
 
@@ -1091,6 +865,18 @@ def delete_folder(folder_id):
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/info"
 
+# 🆕 Rename file
+curl -X POST ${apiUrl}/api/public/edit \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "file", "id": 123, "newName": "new-name.jpg"}'
+
+# 🆕 Rename folder
+curl -X POST ${apiUrl}/api/public/edit \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "folder", "id": 456, "newName": "New Folder Name"}'
+
 # Upload file
 curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
@@ -1101,10 +887,6 @@ curl -X POST ${apiUrl}/api/public/upload \\
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/list"
 
-# List files in folder
-curl -H "X-API-Key: cv_your_api_key_here" \\
-  "${apiUrl}/api/public/list?folderId=1"
-
 # Download file
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/download/123" -o output.jpg
@@ -1113,29 +895,11 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/delete/123"
 
-# Move file to folder
-curl -X POST ${apiUrl}/api/public/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": 456}'
-
-# Move file to root
-curl -X POST ${apiUrl}/api/public/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": null}'
-
 # Create folder
 curl -X POST ${apiUrl}/api/public/folders/create \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -H "Content-Type: application/json" \\
   -d '{"name": "My Folder", "parentId": null}'
-
-# Move folder
-curl -X POST ${apiUrl}/api/public/folders/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"folderId": 123, "targetFolderId": 456}'
 
 # Delete folder
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
@@ -1151,19 +915,21 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/info"
 
-# Upload file
-curl -X POST ${apiUrl}/api/public/upload \\
+# 🆕 Rename file
+curl -X POST ${apiUrl}/api/public/edit \\
   -H "X-API-Key: cv_your_api_key_here" \\
-  -F "file=@./myfile.jpg" \\
-  -F "folderId=1"
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "file", "id": 123, "newName": "new-name.jpg"}'
+
+# 🆕 Rename folder
+curl -X POST ${apiUrl}/api/public/edit \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"action": "rename", "type": "folder", "id": 456, "newName": "New Folder Name"}'
 
 # List files (root)
 curl -H "X-API-Key: cv_your_api_key_here" \\
   "${apiUrl}/api/public/list"
-
-# List files in folder
-curl -H "X-API-Key: cv_your_api_key_here" \\
-  "${apiUrl}/api/public/list?folderId=1"
 
 # Download file
 curl -H "X-API-Key: cv_your_api_key_here" \\
@@ -1171,35 +937,7 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
 # Delete file
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
-  "${apiUrl}/api/public/delete/123"
-
-# Move file to folder
-curl -X POST ${apiUrl}/api/public/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": 456}'
-
-# Move file to root
-curl -X POST ${apiUrl}/api/public/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"fileId": 123, "targetFolderId": null}'
-
-# Create folder
-curl -X POST ${apiUrl}/api/public/folders/create \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "My Folder", "parentId": null}'
-
-# Move folder
-curl -X POST ${apiUrl}/api/public/folders/move \\
-  -H "X-API-Key: cv_your_api_key_here" \\
-  -H "Content-Type: application/json" \\
-  -d '{"folderId": 123, "targetFolderId": 456}'
-
-# Delete folder
-curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
-  "${apiUrl}/api/public/folders/delete/1"`}
+  "${apiUrl}/api/public/delete/123"`}
             </pre>
           </div>
         </div>
@@ -1285,40 +1023,40 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
             <tbody className="divide-y divide-slate-700/50">
               <tr>
                 <td className="p-3"><code className="text-green-400">upload</code></td>
-                <td className="p-3">อัพโหลดไฟล์ + ย้ายไฟล์</td>
-                <td className="p-3 text-gray-400">POST /api/public/upload, POST /api/public/move</td>
+                <td className="p-3">อัพโหลดไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์</td>
+                <td className="p-3 text-gray-400">POST /upload, /move, /edit (file)</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-blue-400">download</code></td>
                 <td className="p-3">ดาวน์โหลดไฟล์</td>
-                <td className="p-3 text-gray-400">GET /api/public/download/:id</td>
+                <td className="p-3 text-gray-400">GET /download/:id</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-yellow-400">list</code></td>
                 <td className="p-3">ดูรายการไฟล์/โฟลเดอร์ + ดูข้อมูลพื้นที่</td>
-                <td className="p-3 text-gray-400">GET /api/public/list, GET /api/public/info</td>
+                <td className="p-3 text-gray-400">GET /list, /info</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-red-400">delete</code></td>
-                <td className="p-3">ลบไฟล์ + ย้ายไฟล์</td>
-                <td className="p-3 text-gray-400">DELETE /api/public/delete/:id, POST /api/public/move</td>
+                <td className="p-3">ลบไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์</td>
+                <td className="p-3 text-gray-400">DELETE /delete/:id, POST /move, /edit (file)</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-purple-400">createFolder</code></td>
-                <td className="p-3">สร้างโฟลเดอร์ + ย้ายโฟลเดอร์</td>
-                <td className="p-3 text-gray-400">POST /api/public/folders/create, POST /api/public/folders/move</td>
+                <td className="p-3">สร้างโฟลเดอร์ + ย้ายโฟลเดอร์ + แก้ไขโฟลเดอร์</td>
+                <td className="p-3 text-gray-400">POST /folders/create, /folders/move, /edit (folder)</td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-pink-400">deleteFolder</code></td>
-                <td className="p-3">ลบโฟลเดอร์ + ย้ายโฟลเดอร์</td>
-                <td className="p-3 text-gray-400">DELETE /api/public/folders/delete/:id, POST /api/public/folders/move</td>
+                <td className="p-3">ลบโฟลเดอร์ + ย้ายโฟลเดอร์ + แก้ไขโฟลเดอร์</td>
+                <td className="p-3 text-gray-400">DELETE /folders/delete/:id, POST /folders/move, /edit (folder)</td>
               </tr>
             </tbody>
           </table>
         </div>
         <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
           <p className="text-sm text-yellow-300">
-            💡 <strong>หมายเหตุ:</strong> การย้ายไฟล์ต้องมี permission <code className="bg-gray-800 px-1 rounded">upload</code> หรือ <code className="bg-gray-800 px-1 rounded">delete</code> อย่างใดอย่างหนึ่ง, การย้ายโฟลเดอร์ต้องมี permission <code className="bg-gray-800 px-1 rounded">createFolder</code> หรือ <code className="bg-gray-800 px-1 rounded">deleteFolder</code> อย่างใดอย่างหนึ่ง
+            💡 <strong>หมายเหตุ:</strong> การแก้ไขไฟล์ต้องมี permission <code className="bg-gray-800 px-1 rounded">upload</code> หรือ <code className="bg-gray-800 px-1 rounded">delete</code>, การแก้ไขโฟลเดอร์ต้องมี permission <code className="bg-gray-800 px-1 rounded">createFolder</code> หรือ <code className="bg-gray-800 px-1 rounded">deleteFolder</code>
           </p>
         </div>
       </div>
