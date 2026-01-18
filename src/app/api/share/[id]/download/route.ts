@@ -121,7 +121,7 @@ export async function GET(
           'Content-Length': chunkSize.toString(),
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(targetFile.original_name)}"`,
+          'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(targetFile.original_name)}`,
         },
       });
     }
@@ -155,7 +155,7 @@ export async function GET(
       headers: {
         'Content-Type': targetFile.mime_type || 'application/octet-stream',
         'Content-Length': fileSize.toString(),
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(targetFile.original_name)}"`,
+        'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(targetFile.original_name)}`,
         'Accept-Ranges': 'bytes',
       },
     });

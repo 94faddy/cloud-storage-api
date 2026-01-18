@@ -184,6 +184,7 @@ export async function POST(request: NextRequest) {
     return new Promise<NextResponse>((resolve, reject) => {
       const busboy = Busboy({ 
         headers: { 'content-type': contentType },
+        defParamCharset: 'utf8',
         limits: {
           fileSize: 100 * 1024 * 1024 * 1024, // 100GB per file
           files: 100,

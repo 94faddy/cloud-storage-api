@@ -142,7 +142,7 @@ export async function GET(
         headers: {
           'Content-Type': mimeType,
           'Content-Length': fileSize.toString(),
-          'Content-Disposition': `${disposition}; filename="${encodeURIComponent(targetFile.original_name)}"`,
+          'Content-Disposition': `${disposition}; filename="file"; filename*=UTF-8''${encodeURIComponent(targetFile.original_name)}`,
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'public, max-age=3600',
         },
@@ -176,7 +176,7 @@ export async function GET(
       headers: {
         'Content-Type': mimeType,
         'Content-Length': fileSize.toString(),
-        'Content-Disposition': `${disposition}; filename="${encodeURIComponent(targetFile.original_name)}"`,
+        'Content-Disposition': `${disposition}; filename="file"; filename*=UTF-8''${encodeURIComponent(targetFile.original_name)}`,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'public, max-age=3600',
       },

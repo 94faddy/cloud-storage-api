@@ -44,7 +44,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': file.mime_type,
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.original_name)}"`,
+        'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(file.original_name)}`,
         'Content-Length': file.size.toString(),
       },
     });
