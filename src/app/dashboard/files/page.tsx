@@ -324,6 +324,82 @@ export default function FilesPage() {
     setIsSelectionMode(false);
   };
 
+  // Bulk delete selected items
+  const handleBulkDelete = async () => {
+    if (selectedFiles.size === 0 && selectedFolders.size === 0) return;
+    
+    const confirmed = window.confirm(
+      `คุณต้องการลบ ${totalSelected} รายการที่เลือกหรือไม่?\n` +
+      `(${selectedFiles.size} ไฟล์, ${selectedFolders.size} โฟลเดอร์)\n\n` +
+      `การดำเนินการนี้ไม่สามารถย้อนกลับได้!`
+    );
+    
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      
+      // Delete files
+      if (selectedFiles.size > 0) {
+        const fileIds = Array.from(selectedFiles);
+        await Promise.all(fileIds.map(id => 
+          fetch(`/api/files/${id}`, { method: 'DELETE' })
+        ));
+      }
+      
+      // Delete folders
+      if (selectedFolders.size > 0) {
+        const folderIds = Array.from(selectedFolders);
+        await Promise.all(folderIds.map(id => 
+          fetch(`/api/folders/${id}`, { method: 'DELETE' })
+        ));
+      }
+      
+      // Clear selection and refresh
+      deselectAll();
+      fetchFiles(currentFolder);
+      
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      alert('เกิดข้อผิดพลาดในการลบ');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Bulk move selected files
+  const handleBulkMove = async () => {
+    if (selectedFiles.size === 0) return;
+    
+    try {
+      setBulkMoveLoading(true);
+      
+      const fileIds = Array.from(selectedFiles);
+      await Promise.all(fileIds.map(id => 
+        fetch('/api/files/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            fileId: id, 
+            targetFolderId: selectedTargetFolder 
+          })
+        })
+      ));
+      
+      // Clear selection and close modal
+      deselectAll();
+      setShowBulkMoveModal(false);
+      setSelectedTargetFolder(null);
+      fetchFiles(currentFolder);
+      
+    } catch (error) {
+      console.error('Bulk move error:', error);
+      alert('เกิดข้อผิดพลาดในการย้าย');
+    } finally {
+      setBulkMoveLoading(false);
+    }
+  };
+
   // Generate unique ID for upload files
   const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -1009,20 +1085,6 @@ export default function FilesPage() {
     setContextMenu({ x: e.clientX, y: e.clientY, type, item });
   };
 
-  // Checkbox Component
-  const SelectCheckbox = ({ checked, onChange, className = '' }: { checked: boolean; onChange: (e: React.MouseEvent) => void; className?: string }) => (
-    <button
-      onClick={onChange}
-      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-        checked 
-          ? 'bg-blue-500 border-blue-500 text-white' 
-          : 'border-gray-500 hover:border-blue-400'
-      } ${className}`}
-    >
-      {checked && <CheckCircle className="w-3.5 h-3.5" />}
-    </button>
-  );
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1103,6 +1165,9 @@ export default function FilesPage() {
                 >
                   {index === 0 && <Home className="w-4 h-4" />}
                   {crumb.name}
+                  {crumb.id !== null && (
+                    <span className="text-xs text-gray-500 ml-1">ID {crumb.id}</span>
+                  )}
                 </button>
               </div>
             ))}
@@ -1169,6 +1234,49 @@ export default function FilesPage() {
         </p>
       </div>
 
+      {/* Selection Bar - แสดงเมื่อมีการเลือกไฟล์/โฟลเดอร์ */}
+      {hasSelection && (
+        <div className="glass rounded-xl p-3 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-300">
+              เลือก <span className="text-blue-400 font-bold">{totalSelected}</span> รายการ
+              {selectedFiles.size > 0 && <span className="text-gray-500"> ({selectedFiles.size} ไฟล์)</span>}
+              {selectedFolders.size > 0 && <span className="text-gray-500"> ({selectedFolders.size} โฟลเดอร์)</span>}
+            </span>
+            <button
+              onClick={selectAll}
+              className="text-xs text-blue-400 hover:text-blue-300"
+            >
+              เลือกทั้งหมด
+            </button>
+            <button
+              onClick={deselectAll}
+              className="text-xs text-gray-400 hover:text-gray-300"
+            >
+              ยกเลิกทั้งหมด
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedFiles.size > 0 && selectedFolders.size === 0 && (
+              <button
+                onClick={() => setShowBulkMoveModal(true)}
+                className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-2"
+              >
+                <Move className="w-4 h-4" />
+                ย้าย
+              </button>
+            )}
+            <button
+              onClick={handleBulkDelete}
+              className="btn text-sm py-1.5 px-3 bg-red-500 hover:bg-red-600 flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              ลบ
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
@@ -1186,10 +1294,30 @@ export default function FilesPage() {
           {filteredFolders.map((folder) => (
             <div
               key={`folder-${folder.id}`}
-              className="card p-4 cursor-pointer hover:border-blue-500/50 transition-all group relative"
+              className={`card p-4 cursor-pointer hover:border-blue-500/50 transition-all group relative ${
+                selectedFolders.has(folder.id) ? 'border-blue-500 bg-blue-500/10' : ''
+              }`}
               onDoubleClick={() => navigateToFolder(folder)}
               onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  toggleFolderSelection(folder.id);
+                }
+              }}
             >
+              {/* Checkbox */}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFolderSelection(folder.id); }}
+                className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                  selectedFolders.has(folder.id)
+                    ? 'bg-blue-500 border-blue-500'
+                    : 'border-gray-600 opacity-0 group-hover:opacity-100 hover:border-blue-400'
+                }`}
+              >
+                {selectedFolders.has(folder.id) && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+              </button>
+
               <div className="flex items-center justify-between mb-3">
                 <div className="relative">
                   <Folder className="w-10 h-10 text-yellow-400" />
@@ -1209,7 +1337,9 @@ export default function FilesPage() {
                 </div>
               </div>
               <p className="text-sm text-white truncate">{folder.name}</p>
-              <p className="text-xs text-gray-500 mt-1">{formatDate(folder.created_at)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                <span className="text-gray-600">ID {folder.id}</span> • {formatDate(folder.created_at)}
+              </p>
             </div>
           ))}
 
@@ -1217,9 +1347,29 @@ export default function FilesPage() {
           {filteredFiles.map((file) => (
             <div
               key={`file-${file.id}`}
-              className="card p-4 hover:border-blue-500/50 transition-all group relative"
+              className={`card p-4 hover:border-blue-500/50 transition-all group relative ${
+                selectedFiles.has(file.id) ? 'border-blue-500 bg-blue-500/10' : ''
+              }`}
               onContextMenu={(e) => handleContextMenu(e, 'file', file)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  toggleFileSelection(file.id);
+                }
+              }}
             >
+              {/* Checkbox */}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}
+                className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                  selectedFiles.has(file.id)
+                    ? 'bg-blue-500 border-blue-500'
+                    : 'border-gray-600 opacity-0 group-hover:opacity-100 hover:border-blue-400'
+                }`}
+              >
+                {selectedFiles.has(file.id) && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+              </button>
+
               <div className="flex items-center justify-between mb-3">
                 <div className="relative w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
                   {getFileIcon(file.mime_type)}
@@ -1239,7 +1389,9 @@ export default function FilesPage() {
                 </div>
               </div>
               <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
-              <p className="text-xs text-gray-500 mt-1">{formatBytes(file.size)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                <span className="text-gray-600">ID {file.id}</span> • {formatBytes(file.size)}
+              </p>
             </div>
           ))}
         </div>
@@ -1249,6 +1401,16 @@ export default function FilesPage() {
           <table className="table">
             <thead>
               <tr>
+                <th className="w-10">
+                  <button
+                    onClick={() => hasSelection ? deselectAll() : selectAll()}
+                    className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                      hasSelection ? 'bg-blue-500 border-blue-500' : 'border-gray-600 hover:border-blue-400'
+                    }`}
+                  >
+                    {hasSelection && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                  </button>
+                </th>
                 <th>ชื่อ</th>
                 <th>ขนาด</th>
                 <th>วันที่สร้าง</th>
@@ -1261,14 +1423,27 @@ export default function FilesPage() {
               {filteredFolders.map((folder) => (
                 <tr
                   key={`folder-${folder.id}`}
-                  className="cursor-pointer"
+                  className={`cursor-pointer ${selectedFolders.has(folder.id) ? 'bg-blue-500/10' : ''}`}
                   onDoubleClick={() => navigateToFolder(folder)}
                   onContextMenu={(e) => handleContextMenu(e, 'folder', folder)}
                 >
                   <td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleFolderSelection(folder.id); }}
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                        selectedFolders.has(folder.id)
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'border-gray-600 hover:border-blue-400'
+                      }`}
+                    >
+                      {selectedFolders.has(folder.id) && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                    </button>
+                  </td>
+                  <td>
                     <div className="flex items-center gap-3">
                       <Folder className="w-5 h-5 text-yellow-400" />
                       <span className="text-white">{folder.name}</span>
+                      <span className="text-xs text-gray-500">ID {folder.id}</span>
                     </div>
                   </td>
                   <td className="text-gray-400">-</td>
@@ -1319,12 +1494,26 @@ export default function FilesPage() {
               {filteredFiles.map((file) => (
                 <tr 
                   key={`file-${file.id}`}
+                  className={selectedFiles.has(file.id) ? 'bg-blue-500/10' : ''}
                   onContextMenu={(e) => handleContextMenu(e, 'file', file)}
                 >
+                  <td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                        selectedFiles.has(file.id)
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'border-gray-600 hover:border-blue-400'
+                      }`}
+                    >
+                      {selectedFiles.has(file.id) && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                    </button>
+                  </td>
                   <td>
                     <div className="flex items-center gap-3">
                       {getFileIcon(file.mime_type)}
                       <span className="text-white truncate max-w-xs">{file.original_name}</span>
+                      <span className="text-xs text-gray-500">ID {file.id}</span>
                     </div>
                   </td>
                   <td className="text-gray-400">{formatBytes(file.size)}</td>
@@ -1551,6 +1740,84 @@ export default function FilesPage() {
                   <ArrowRight className="w-4 h-4" />
                 )}
                 ย้าย
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Move Modal */}
+      {showBulkMoveModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Move className="w-6 h-6 text-blue-400" />
+                ย้ายไฟล์ที่เลือก
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">
+                {selectedFiles.size} ไฟล์
+              </p>
+            </div>
+
+            <div className="p-6 max-h-80 overflow-y-auto">
+              <p className="text-sm text-gray-400 mb-3">เลือกโฟลเดอร์ปลายทาง:</p>
+              
+              <button
+                onClick={() => setSelectedTargetFolder(null)}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                  selectedTargetFolder === null 
+                    ? 'bg-blue-500/20 border border-blue-500/50' 
+                    : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                }`}
+              >
+                <Home className="w-5 h-5 text-blue-400" />
+                <span>หน้าแรก (Root)</span>
+                {selectedTargetFolder === null && (
+                  <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
+                )}
+              </button>
+
+              {allFolders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => setSelectedTargetFolder(folder.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg mb-2 transition-colors ${
+                    selectedTargetFolder === folder.id 
+                      ? 'bg-blue-500/20 border border-blue-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-800 border border-transparent'
+                  }`}
+                  style={{ paddingLeft: `${((folder as any).depth || 0) * 16 + 12}px` }}
+                >
+                  <Folder className="w-5 h-5 text-yellow-400" />
+                  <span className="truncate">{folder.name}</span>
+                  <span className="text-xs text-gray-500">ID {folder.id}</span>
+                  {selectedTargetFolder === folder.id && (
+                    <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-6 border-t border-gray-700/50 flex gap-3">
+              <button
+                onClick={() => { setShowBulkMoveModal(false); setSelectedTargetFolder(null); }}
+                className="btn-secondary flex-1"
+                disabled={bulkMoveLoading}
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleBulkMove}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+                disabled={bulkMoveLoading}
+              >
+                {bulkMoveLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-4 h-4" />
+                )}
+                ย้าย {selectedFiles.size} ไฟล์
               </button>
             </div>
           </div>
