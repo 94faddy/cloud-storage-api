@@ -5,7 +5,7 @@ import { Book, Copy, ChevronDown, ChevronRight, Code, Upload, Download, Trash2, 
 import Swal from 'sweetalert2';
 
 interface Endpoint {
-  method: 'GET' | 'POST' | 'DELETE' | 'PATCH';
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'HEAD';
   path: string;
   description: string;
   auth: 'API Key' | 'None';
@@ -25,7 +25,8 @@ const methodColors: Record<string, string> = {
   GET: 'bg-green-500/20 text-green-400 border-green-500/30',
   POST: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   DELETE: 'bg-red-500/20 text-red-400 border-red-500/30',
-  PATCH: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+  PATCH: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  HEAD: 'bg-purple-500/20 text-purple-400 border-purple-500/30'
 };
 
 export default function DocsPage() {
@@ -164,6 +165,95 @@ curl -X POST ${apiUrl}/api/public/upload \\
   -H "X-API-Key: cv_your_api_key_here" \\
   -F "files=@./photo.jpg" \\
   -F "folderId=1"`
+        },
+        {
+          method: 'POST',
+          path: '/api/public/share',
+          description: '🔗 Share/Unshare ไฟล์เพื่อสร้าง CDN URL สำหรับใช้ภายนอก (ไม่ต้อง API Key)',
+          auth: 'API Key',
+          headers: { 
+            'X-API-Key': 'cv_your_api_key_here',
+            'Content-Type': 'application/json'
+          },
+          body: {
+            type: 'string ("file" หรือ "folder")',
+            id: 'number (File ID หรือ Folder ID)',
+            isPublic: 'boolean (true = share, false = unshare)'
+          },
+          response: {
+            success: true,
+            data: {
+              type: 'file',
+              id: 123,
+              name: 'photo.jpg',
+              isPublic: true,
+              cdnUrl: 'https://cdn-asia1.nexzcloud.lol/abc123-uuid (CDN URL สำหรับใช้ภายนอก)',
+              shareUrl: 'https://nexzcloud.lol/share/abc123-uuid',
+              urls: {
+                cdn: 'CDN URL - ใช้ได้โดยไม่ต้อง API Key',
+                cdnDownload: 'CDN URL + ?download=1',
+                share: 'หน้า preview',
+                shareDownload: 'ดาวน์โหลดจากหน้า share'
+              }
+            },
+            message: 'File shared successfully'
+          },
+          example: `// Share file - ได้ CDN URL กลับมาใช้งาน
+const response = await fetch('${apiUrl}/api/public/share', {
+  method: 'POST',
+  headers: { 
+    'X-API-Key': 'cv_your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    type: 'file',
+    id: 123,
+    isPublic: true
+  })
+});
+
+const data = await response.json();
+console.log(data.data.cdnUrl);
+// Output: https://cdn-asia1.nexzcloud.lol/abc123-uuid
+
+// ใช้ CDN URL ได้โดยไม่ต้อง API Key!
+// <img src="https://cdn-asia1.nexzcloud.lol/abc123-uuid" />
+
+// cURL
+curl -X POST ${apiUrl}/api/public/share \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"type": "file", "id": 123, "isPublic": true}'`
+        },
+        {
+          method: 'GET',
+          path: '/api/public/share',
+          description: '🔗 ดูรายการไฟล์/โฟลเดอร์ที่ share อยู่พร้อม CDN URL',
+          auth: 'API Key',
+          headers: { 'X-API-Key': 'cv_your_api_key_here' },
+          body: {
+            'Query Params': {
+              type: '"file" | "folder" | "all" (default: "all")'
+            }
+          },
+          response: {
+            success: true,
+            data: {
+              files: [{
+                id: 123,
+                name: 'photo.jpg',
+                cdnUrl: 'https://cdn-asia1.nexzcloud.lol/abc123-uuid'
+              }],
+              folders: [{
+                id: 456,
+                name: 'My Folder',
+                shareUrl: 'https://nexzcloud.lol/share/def456-uuid'
+              }]
+            }
+          },
+          example: `// Get all shared items with CDN URLs
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/share?type=all"`
         },
         {
           method: 'GET',
@@ -852,7 +942,31 @@ async function deleteFile(fileId) {
     { method: 'DELETE', headers }
   );
   return response.json();
-}`}
+}
+
+// 🔗 Share file (สร้าง CDN URL)
+async function shareFile(fileId, isPublic = true) {
+  const response = await fetch(\`\${BASE_URL}/api/public/share\`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'file', id: fileId, isPublic })
+  });
+  const data = await response.json();
+  // data.cdnUrl = CDN URL ที่ใช้งานได้โดยไม่ต้อง API Key!
+  return data;
+}
+
+// 🔗 Get shared items
+async function getSharedItems(type = 'all') {
+  const response = await fetch(
+    \`\${BASE_URL}/api/public/share?type=\${type}\`, 
+    { headers }
+  );
+  return response.json();
+}
+
+// 🚀 CDN URL ที่ได้จาก Share API ใช้ได้โดยไม่ต้อง API Key!
+// ตัวอย่าง: https://cdn-asia1.nexzcloud.lol/abc123-uuid`}
             </pre>
           </div>
 
@@ -937,7 +1051,20 @@ curl -H "X-API-Key: cv_your_api_key_here" \\
 
 # Delete file
 curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
-  "${apiUrl}/api/public/delete/123"`}
+  "${apiUrl}/api/public/delete/123"
+
+# 🔗 Share file (สร้าง CDN URL)
+curl -X POST ${apiUrl}/api/public/share \\
+  -H "X-API-Key: cv_your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"type": "file", "id": 123, "isPublic": true}'
+
+# 🔗 Get shared items
+curl -H "X-API-Key: cv_your_api_key_here" \\
+  "${apiUrl}/api/public/share?type=all"
+
+# 🚀 CDN URL ที่ได้จาก Share API (ไม่ต้อง API Key!)
+# curl "https://cdn-asia1.nexzcloud.lol/abc123-uuid" -o file.jpg`}
             </pre>
           </div>
         </div>
@@ -1023,8 +1150,8 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
             <tbody className="divide-y divide-slate-700/50">
               <tr>
                 <td className="p-3"><code className="text-green-400">upload</code></td>
-                <td className="p-3">อัพโหลดไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์</td>
-                <td className="p-3 text-gray-400">POST /upload, /move, /edit (file)</td>
+                <td className="p-3">อัพโหลดไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์ + <span className="text-green-300">Share ไฟล์</span></td>
+                <td className="p-3 text-gray-400">POST /upload, /move, /edit (file), <span className="text-green-300">/share</span></td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-blue-400">download</code></td>
@@ -1033,13 +1160,13 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
               </tr>
               <tr>
                 <td className="p-3"><code className="text-yellow-400">list</code></td>
-                <td className="p-3">ดูรายการไฟล์/โฟลเดอร์ + ดูข้อมูลพื้นที่</td>
-                <td className="p-3 text-gray-400">GET /list, /info</td>
+                <td className="p-3">ดูรายการไฟล์/โฟลเดอร์ + ดูข้อมูลพื้นที่ + <span className="text-yellow-300">ดูรายการที่ Share</span></td>
+                <td className="p-3 text-gray-400">GET /list, /info, <span className="text-yellow-300">/share</span></td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-red-400">delete</code></td>
-                <td className="p-3">ลบไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์</td>
-                <td className="p-3 text-gray-400">DELETE /delete/:id, POST /move, /edit (file)</td>
+                <td className="p-3">ลบไฟล์ + ย้ายไฟล์ + แก้ไขไฟล์ + <span className="text-red-300">Share/Unshare ไฟล์</span></td>
+                <td className="p-3 text-gray-400">DELETE /delete/:id, POST /move, /edit (file), <span className="text-red-300">/share</span></td>
               </tr>
               <tr>
                 <td className="p-3"><code className="text-purple-400">createFolder</code></td>
@@ -1057,6 +1184,11 @@ curl -X DELETE -H "X-API-Key: cv_your_api_key_here" \\
         <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
           <p className="text-sm text-yellow-300">
             💡 <strong>หมายเหตุ:</strong> การแก้ไขไฟล์ต้องมี permission <code className="bg-gray-800 px-1 rounded">upload</code> หรือ <code className="bg-gray-800 px-1 rounded">delete</code>, การแก้ไขโฟลเดอร์ต้องมี permission <code className="bg-gray-800 px-1 rounded">createFolder</code> หรือ <code className="bg-gray-800 px-1 rounded">deleteFolder</code>
+          </p>
+        </div>
+        <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+          <p className="text-sm text-green-300">
+            🔗 <strong>Share API:</strong> การ Share ไฟล์/โฟลเดอร์ต้องมี permission <code className="bg-gray-800 px-1 rounded">upload</code> หรือ <code className="bg-gray-800 px-1 rounded">delete</code> | การดูรายการที่ Share ต้องมี permission <code className="bg-gray-800 px-1 rounded">list</code>
           </p>
         </div>
       </div>

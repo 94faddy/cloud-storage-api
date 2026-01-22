@@ -244,7 +244,7 @@ export async function getPublicFile(publicUrl: string): Promise<{ file: File; bu
   return { file, buffer };
 }
 
-export async function setFilePublic(fileId: number, userId: number, isPublic: boolean): Promise<File> {
+export async function setFilePublic(fileId: number, userId: number, isPublic: boolean, cdnPrefix?: string): Promise<File> {
   const files = await query<File[]>(
     'SELECT * FROM files WHERE id = ? AND user_id = ?',
     [fileId, userId]
@@ -255,10 +255,14 @@ export async function setFilePublic(fileId: number, userId: number, isPublic: bo
   }
 
   const publicUrl = isPublic ? uuidv4() : null;
+  // Sanitize cdnPrefix - ลบอักขระพิเศษ, เหลือแค่ a-z, 0-9, -, _
+  const sanitizedPrefix = cdnPrefix 
+    ? cdnPrefix.toLowerCase().replace(/[^a-z0-9_-]/g, '').substring(0, 50)
+    : null;
 
   await query(
-    'UPDATE files SET is_public = ?, public_url = ? WHERE id = ?',
-    [isPublic, publicUrl, fileId]
+    'UPDATE files SET is_public = ?, public_url = ?, cdn_prefix = ? WHERE id = ?',
+    [isPublic, publicUrl, isPublic ? sanitizedPrefix : null, fileId]
   );
 
   const updatedFiles = await query<File[]>('SELECT * FROM files WHERE id = ?', [fileId]);

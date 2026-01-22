@@ -35,6 +35,7 @@ export interface File {
   path: string;
   is_public: boolean;
   public_url: string | null;
+  cdn_prefix: string | null;
   created_at: Date;
   updated_at: Date;
 }
