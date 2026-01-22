@@ -343,7 +343,7 @@ export default function FilesPage() {
       if (selectedFiles.size > 0) {
         const fileIds = Array.from(selectedFiles);
         await Promise.all(fileIds.map(id => 
-          fetch(`/api/files/${id}`, { method: 'DELETE' })
+          fetch(`/api/files/delete/${id}`, { method: 'DELETE' })
         ));
       }
       
@@ -351,7 +351,7 @@ export default function FilesPage() {
       if (selectedFolders.size > 0) {
         const folderIds = Array.from(selectedFolders);
         await Promise.all(folderIds.map(id => 
-          fetch(`/api/folders/${id}`, { method: 'DELETE' })
+          fetch(`/api/folders/delete/${id}`, { method: 'DELETE' })
         ));
       }
       
@@ -778,6 +778,13 @@ export default function FilesPage() {
     setShowMoveModal(true);
   };
 
+  // Open Bulk Move Modal
+  const openBulkMoveModal = async () => {
+    setSelectedTargetFolder(null);
+    await fetchAllFolders();
+    setShowBulkMoveModal(true);
+  };
+
   const handleMove = async () => {
     if (!moveItem) return;
     
@@ -1166,7 +1173,7 @@ export default function FilesPage() {
                   {index === 0 && <Home className="w-4 h-4" />}
                   {crumb.name}
                   {crumb.id !== null && (
-                    <span className="text-xs text-gray-500 ml-1">ID {crumb.id}</span>
+                    <span className="text-xs text-gray-500 ml-1">#{crumb.id}</span>
                   )}
                 </button>
               </div>
@@ -1259,7 +1266,7 @@ export default function FilesPage() {
           <div className="flex items-center gap-2">
             {selectedFiles.size > 0 && selectedFolders.size === 0 && (
               <button
-                onClick={() => setShowBulkMoveModal(true)}
+                onClick={openBulkMoveModal}
                 className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-2"
               >
                 <Move className="w-4 h-4" />
@@ -1338,7 +1345,7 @@ export default function FilesPage() {
               </div>
               <p className="text-sm text-white truncate">{folder.name}</p>
               <p className="text-xs text-gray-500 mt-1">
-                <span className="text-gray-600">ID {folder.id}</span> • {formatDate(folder.created_at)}
+                <span className="text-gray-600">#{folder.id}</span> • {formatDate(folder.created_at)}
               </p>
             </div>
           ))}
@@ -1390,7 +1397,7 @@ export default function FilesPage() {
               </div>
               <p className="text-sm text-white truncate" title={file.original_name}>{file.original_name}</p>
               <p className="text-xs text-gray-500 mt-1">
-                <span className="text-gray-600">ID {file.id}</span> • {formatBytes(file.size)}
+                <span className="text-gray-600">#{file.id}</span> • {formatBytes(file.size)}
               </p>
             </div>
           ))}
@@ -1443,7 +1450,7 @@ export default function FilesPage() {
                     <div className="flex items-center gap-3">
                       <Folder className="w-5 h-5 text-yellow-400" />
                       <span className="text-white">{folder.name}</span>
-                      <span className="text-xs text-gray-500">ID {folder.id}</span>
+                      <span className="text-xs text-gray-500">#{folder.id}</span>
                     </div>
                   </td>
                   <td className="text-gray-400">-</td>
@@ -1513,7 +1520,7 @@ export default function FilesPage() {
                     <div className="flex items-center gap-3">
                       {getFileIcon(file.mime_type)}
                       <span className="text-white truncate max-w-xs">{file.original_name}</span>
-                      <span className="text-xs text-gray-500">ID {file.id}</span>
+                      <span className="text-xs text-gray-500">#{file.id}</span>
                     </div>
                   </td>
                   <td className="text-gray-400">{formatBytes(file.size)}</td>
@@ -1791,7 +1798,7 @@ export default function FilesPage() {
                 >
                   <Folder className="w-5 h-5 text-yellow-400" />
                   <span className="truncate">{folder.name}</span>
-                  <span className="text-xs text-gray-500">ID {folder.id}</span>
+                  <span className="text-xs text-gray-500">#{folder.id}</span>
                   {selectedTargetFolder === folder.id && (
                     <CheckCircle className="w-4 h-4 text-blue-400 ml-auto" />
                   )}

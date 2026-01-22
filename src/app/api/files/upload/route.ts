@@ -54,20 +54,31 @@ async function createFoldersFromRelativePath(
 ): Promise<{ folderId: number | null; physicalPath: string }> {
   const userPath = getUserStoragePath(userId);
   
+  // Helper: หา physical path จาก folder
+  const getFolderPhysicalPath = async (folderId: number): Promise<string> => {
+    const folders = await query<Folder[]>(
+      'SELECT * FROM folders WHERE id = ? AND user_id = ?',
+      [folderId, userId]
+    );
+    if (folders[0]) {
+      // ถ้ามี path ใช้ path, ถ้าไม่มีใช้ name
+      const folderPath = folders[0].path || folders[0].name;
+      if (folderPath) {
+        const physicalPath = path.join(userPath, folderPath);
+        await ensureDir(physicalPath);
+        return physicalPath;
+      }
+    }
+    return userPath;
+  };
+  
   // ถ้าไม่มี relativePath ให้ใช้ baseFolderId
   if (!relativePath || relativePath === '') {
     if (baseFolderId !== null) {
-      const folders = await query<Folder[]>(
-        'SELECT * FROM folders WHERE id = ? AND user_id = ?',
-        [baseFolderId, userId]
-      );
-      if (folders[0] && folders[0].path) {
-        const physicalPath = path.join(userPath, folders[0].path);
-        await ensureDir(physicalPath);
-        return { folderId: baseFolderId, physicalPath };
-      }
+      const physicalPath = await getFolderPhysicalPath(baseFolderId);
+      return { folderId: baseFolderId, physicalPath };
     }
-    return { folderId: baseFolderId, physicalPath: userPath };
+    return { folderId: null, physicalPath: userPath };
   }
 
   // แยก path: "FolderName/SubFolder/file.txt" -> ["FolderName", "SubFolder"]
@@ -76,24 +87,21 @@ async function createFoldersFromRelativePath(
   if (!folderPath || folderPath === '.') {
     // ไฟล์อยู่ใน root ของโฟลเดอร์ที่อัพโหลด
     if (baseFolderId !== null) {
-      const folders = await query<Folder[]>(
-        'SELECT * FROM folders WHERE id = ? AND user_id = ?',
-        [baseFolderId, userId]
-      );
-      if (folders[0] && folders[0].path) {
-        const physicalPath = path.join(userPath, folders[0].path);
-        await ensureDir(physicalPath);
-        return { folderId: baseFolderId, physicalPath };
-      }
+      const physicalPath = await getFolderPhysicalPath(baseFolderId);
+      return { folderId: baseFolderId, physicalPath };
     }
-    return { folderId: baseFolderId, physicalPath: userPath };
+    return { folderId: null, physicalPath: userPath };
   }
 
   // แยก folder parts
   const folderParts = folderPath.split(/[\/\\]/).filter(Boolean);
   
   if (folderParts.length === 0) {
-    return { folderId: baseFolderId, physicalPath: userPath };
+    if (baseFolderId !== null) {
+      const physicalPath = await getFolderPhysicalPath(baseFolderId);
+      return { folderId: baseFolderId, physicalPath };
+    }
+    return { folderId: null, physicalPath: userPath };
   }
 
   // หา base path จาก baseFolderId
