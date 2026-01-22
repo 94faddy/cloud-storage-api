@@ -187,7 +187,8 @@ curl -X POST ${apiUrl}/api/public/upload \\
               id: 123,
               name: 'photo.jpg',
               isPublic: true,
-              cdnUrl: 'https://cdn-asia1.nexzcloud.lol/abc123-uuid (CDN URL สำหรับใช้ภายนอก)',
+              cdnPrefix: 'your-api-key-name',
+              cdnUrl: 'https://cdn-asia1.nexzcloud.lol/@your-api-key-name/abc123-uuid',
               shareUrl: 'https://nexzcloud.lol/share/abc123-uuid',
               urls: {
                 cdn: 'CDN URL - ใช้ได้โดยไม่ต้อง API Key',
@@ -214,10 +215,14 @@ const response = await fetch('${apiUrl}/api/public/share', {
 
 const data = await response.json();
 console.log(data.data.cdnUrl);
-// Output: https://cdn-asia1.nexzcloud.lol/abc123-uuid
+// Output: https://cdn-asia1.nexzcloud.lol/@your-api-key-name/abc123-uuid
+
+// cdnPrefix = ชื่อ API Key ที่ใช้ share (เช่น "bevchat", "mydrive")
+console.log(data.data.cdnPrefix);
+// Output: your-api-key-name
 
 // ใช้ CDN URL ได้โดยไม่ต้อง API Key!
-// <img src="https://cdn-asia1.nexzcloud.lol/abc123-uuid" />
+// <img src="https://cdn-asia1.nexzcloud.lol/@bevchat/abc123-uuid" />
 
 // cURL
 curl -X POST ${apiUrl}/api/public/share \\
@@ -242,7 +247,8 @@ curl -X POST ${apiUrl}/api/public/share \\
               files: [{
                 id: 123,
                 name: 'photo.jpg',
-                cdnUrl: 'https://cdn-asia1.nexzcloud.lol/abc123-uuid'
+                cdnPrefix: 'bevchat',
+                cdnUrl: 'https://cdn-asia1.nexzcloud.lol/@bevchat/abc123-uuid'
               }],
               folders: [{
                 id: 456,
